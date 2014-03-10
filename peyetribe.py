@@ -1,3 +1,6 @@
+"""
+Simple python interface to the Eye Tribe eyetracker
+"""
 import threading
 import queue
 import time
@@ -264,18 +267,15 @@ class EyeTribe():
             except ValueError:
                 raise
 
+# Example usage:
+
 sys.stderr.write("Starting up...\n")
-
 tracker = EyeTribe()
-
 tracker.connect()
-
 n = tracker.next()
 
 starttime = time.clock()
-
 tracker.pushmode()
-
 count = 0
 while count < 100:
     n = tracker.next()
