@@ -1,6 +1,59 @@
 """
 Simple python interface to the Eye Tribe eyetracker
+
+A simple usage scenario is as follows:
+
+    import peyetribe
+    import sys
+
+    tracker = EyeTribe()    # Create a tracker object (defaults to localhost:6555)
+    tracker.connect()       # Initiate the TCP/IP connection to the tracker
+
+    n = tracker.next()      # Default is pull mode: Just get a frame from the tracker
+                            # Access e.g. current gaze x coordinate as avg = n.getavg().x
+
+    tracker.pushmode()      # Switch to push mode
+
+    count = 0               # Print out the next 100 gaze coordinates
+    while count < 100:
+        n = tracker.next()  # Gets next coordinate from queue (blocking!), now in push mode
+        sys.stderr.write(str(n) + '\n')
+        count += 1
+
+    tracker.pullmode()      # End push mode
+
+    tracker.close()         # Disconnect from tracker
+
+
+Created by Per Baekgaard / pgba@dtu.dk / baekgaard@b4net.dk, March 2014
+
+Licensed under the MIT License:
+
+Copyright (c) 2014, Per Baekgaard, Technical University of Denmark, DTU Informatics, Cognitive Systems Section
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the Software without restriction, including without
+limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the
+Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT
+LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
+OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
 """
+__author__ = "Per Baekgaard"
+__copyright__ = \
+    "Copyright (c) 2014, Per Baekgaard, Technical University of Denmark, DTU Informatics, Cognitive Systems Section"
+__license__ = "MIT"
+__version__ = "0.1"
+__email__ = "pgba@dtu.dk"
+__status__ = "Alpha"
+
 import threading
 import queue
 import time
@@ -11,7 +64,10 @@ import sys
 
 class EyeTribe():
     """
-    connect to and get date from the eye tribe eye tracker
+    Main class to handle the Eye Tracker
+
+    Includes subclasses Frame (that holds an entire tracker frame with both-eye positions) and its
+    Eye and Coord subclasses holding (single eye) data and all x,y coordinates
     """
 
     etm_get_init = '{ "category": "tracker", "request" : "get", "values": [ "iscalibrated", "heartbeatinterval" ] }'
@@ -22,10 +78,17 @@ class EyeTribe():
     etm_buffer_size = 1024
 
     class Frame():
-        class Pos():
-            def __init__(self, x=0, y=0):
+        """
+        Holds a complete Frame from the eye tracker
+
+        Access via accessor functions get... or convert to string via str(...)
+        """
+        class Coord():
+            """Single (x,y) positions relative to screen typically"""
+            def __init__(self, x=0, y=0, ssep=';'):
                 self.x = x
                 self.y = y
+                self.ssep = ssep
 
             def getx(self):
                 return self.x
@@ -33,15 +96,17 @@ class EyeTribe():
             def gety(self):
                 return self.y
 
-            def marshall(self, sep=';'):
-                return "%d%s%d" % (self.x, sep, self.y)
+            def __str__(self):
+                return "%d%s%d" % (self.x, self.ssep, self.y)
 
         class Eye:
-            def __init__(self, raw, avg, psize, pcenter):
+            """Single-eye data including gaze coordinates and pupil sizes etc"""
+            def __init__(self, raw, avg, psize, pcenter, ssep=';'):
                 self.raw = raw
                 self.avg = avg
                 self.psize = psize
                 self.pcenter = pcenter
+                self.ssep = ssep
 
             def getraw(self):
                 return self.raw
@@ -55,29 +120,32 @@ class EyeTribe():
             def getcenter(self):
                 return self.pcenter
 
-            def marshall(self, sep=';'):
-                return "%s%s%s%s%.1f%s%s" % (self.raw.marshall(sep),sep,self.avg.marshall(sep),sep,self.psize,sep,self.pcenter.marshall(sep))
+            def __str__(self):
+                return "%s%s%s%s%.1f%s%s" % \
+                       (str(self.raw), self.ssep, str(self.avg), self.ssep, self.psize, self.ssep, str(self.pcenter))
 
-        def __init__(self, json):
+        def __init__(self, json, ssep=';'):
+            """Takes a json dictionary and creates an (unpacked) Frame object"""
             self.time = json['time']
             self.fix = json['fix']
             self.state = json['state']
-            self.raw = EyeTribe.Frame.Pos(json['raw']['x'], json['raw']['y'])
-            self.avg = EyeTribe.Frame.Pos(json['avg']['x'], json['avg']['y'])
+            self.raw = EyeTribe.Frame.Coord(json['raw']['x'], json['raw']['y'])
+            self.avg = EyeTribe.Frame.Coord(json['avg']['x'], json['avg']['y'])
             eye = json['lefteye']
             self.lefteye = EyeTribe.Frame.Eye(
-                EyeTribe.Frame.Pos(eye['raw']['x'], eye['raw']['y']),
-                EyeTribe.Frame.Pos(eye['avg']['x'], eye['avg']['y']),
+                EyeTribe.Frame.Coord(eye['raw']['x'], eye['raw']['y']),
+                EyeTribe.Frame.Coord(eye['avg']['x'], eye['avg']['y']),
                 eye['psize'],
-                EyeTribe.Frame.Pos(eye['pcenter']['x'], eye['pcenter']['y'])
+                EyeTribe.Frame.Coord(eye['pcenter']['x'], eye['pcenter']['y'])
             )
             eye = json['righteye']
             self.righteye = EyeTribe.Frame.Eye(
-                EyeTribe.Frame.Pos(eye['raw']['x'], eye['raw']['y']),
-                EyeTribe.Frame.Pos(eye['avg']['x'], eye['avg']['y']),
+                EyeTribe.Frame.Coord(eye['raw']['x'], eye['raw']['y']),
+                EyeTribe.Frame.Coord(eye['avg']['x'], eye['avg']['y']),
                 eye['psize'],
-                EyeTribe.Frame.Pos(eye['pcenter']['x'], eye['pcenter']['y'])
+                EyeTribe.Frame.Coord(eye['pcenter']['x'], eye['pcenter']['y'])
             )
+            self.ssep = ssep
 
         def gettime(self):
             return self.time
@@ -97,20 +165,21 @@ class EyeTribe():
             else:
                 return self.righteye
 
-        def marshall(self, sep=';'):
+        def __str__(self):
             st = 'L' if (self.state & 0x10) else '.'
             st += 'F' if (self.state & 0x08) else '.'
             st += 'P' if (self.state & 0x04) else '.'
             st += 'E' if (self.state & 0x02) else '.'
             st += 'G' if (self.state & 0x01) else '.'
-            f = 'F' if (self.fix) else 'N'
-            s = "%08.3f%s%s%s%s%s%s%s%s" % (self.time/1000, sep, f, sep, st, sep, self.raw.marshall(sep), sep, self.avg.marshall(sep))
-            s += "%s%s" % (sep, self.lefteye.marshall(sep))
-            s += "%s%s" % (sep, self.righteye.marshall(sep))
+            f = 'F' if self.fix else 'N'
+            s = "%08.3f%s%s%s%s%s%s%s%s" % \
+                (self.time/1000, self.ssep, f, self.ssep, st, self.ssep, str(self.raw), self.ssep, str(self.avg))
+            s += "%s%s" % (self.ssep, str(self.lefteye))
+            s += "%s%s" % (self.ssep, str(self.righteye))
 
             return s
 
-    def __init__(self, host='localhost', port=6555):
+    def __init__(self, host='localhost', port=6555, ssep=';'):
         self.host = host
         self.port = port
         self.sock = None
@@ -118,26 +187,30 @@ class EyeTribe():
         self.ispushmode = False
         self.hbinterval = 0
         self.hbeater = None
-        self.puller = None
+        self.listener = None
         self.queue = queue.Queue()
         self.toffset = None
+        self.ssep = ssep
 
     def connect(self):
+        """
+        Connect an EyeTribe object to the actual Eye Tracker by establishing a TCP/IP connection
+        Also gets heartbeatinterval information (needed later for the call-back timing)
+        """
         if self.sock is None:
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.sock.connect((self.host, self.port))
 
             self.sock.send(EyeTribe.etm_get_init.encode())
-            r = self.sock.recv(EyeTribe.etm_buffer_size)
+            r = self.sock.recv(EyeTribe.etm_buffer_size).decode()
 
             try:
-                p = json.loads(r.decode())
+                p = json.loads(r)
 
                 sc = p['statuscode']
                 if sc != 200:
                     raise Exception("connection failed, protocol error (%d)", sc)
 
-                # sys.stderr.write("iscalibrated: %s, heartbeatinterval: %s\n" % (p['values']['iscalibrated'], p['values']['heartbeatinterval']))
                 self.hbinterval = p['values']['heartbeatinterval']
             except ValueError:
                 raise
@@ -146,6 +219,7 @@ class EyeTribe():
             raise Exception("cannot connect an already connected socket; close it first")
 
     def bind(self, host='localhost', port=6555):
+        """(Re)binds a non-connected Eye Tribe object to another host/port"""
         if not self.sock is None:
             self.host = host
             self.port = port
@@ -153,6 +227,7 @@ class EyeTribe():
             raise Exception("cannot (re)bind a connected socket; close it first")
 
     def close(self):
+        """Close TCP/IP connection, returning the object back to its starting condition"""
         if not self.sock.close is None:
             self.sock.close()
             self.sock = None
@@ -161,8 +236,11 @@ class EyeTribe():
 
     def pushmode(self):
         """
-        change to push mode, i.e. setup and start receiving tracking data
+        Change to push mode, i.e. setup and start receiving tracking data
         requires a connected tracker that also has been calibrated
+
+        Also resets the tracker time, so all returned frames are relative to the timing
+        of the first returned frame
         """
 
         def hbeater():
@@ -173,19 +251,22 @@ class EyeTribe():
                 self.sock.send(EyeTribe.etm_heartbeat.encode())
             return
 
-        def puller():
-            """process pushed data (and heartbeat replies) from the tracker in push mode"""
+        def listener():
+            """process pushed data (and heartbeat replies and other stuff returned) from the tracker in push mode"""
 
             while self.ispushmode:
+                # Keep going until we're asked to terminate
+                # TODO: Could hang, change to non-blocking recv with e.g. 2x hb interval
+                # TODO: Make sure we have processed the final OK reply to change back to pull mode
                 r = self.sock.recv(EyeTribe.etm_buffer_size)
-                # sys.stderr.write("inpush raw response: %s\n" % (r))
                 p = json.loads(r.decode())
 
                 sc = p['statuscode']
                 if sc != 200:
                     raise Exception("connection failed, protocol error (%d)", sc)
 
-                # process replies with frames and store those to queue
+                # process replies with frames and store those to queue, discarding all other data for now
+                # although we could also save other replies as needed about state etc
                 if p['category'] != "heartbeat" and 'values' in p and 'frame' in p['values']:
                     f = EyeTribe.Frame(p['values']['frame'])
 
@@ -194,7 +275,6 @@ class EyeTribe():
                     f.time -= self.toffset
 
                     self.queue.put(f)
-                    # sys.stderr.write ("[%.3f] at (%d,%d), left: (%d,%d), right: (%d,%d)\n" % (f.time/1000, f.avg.x, f.avg.y, f.lefteye.avg.x, f.lefteye.avg.y, f.righteye.avg.x, f.righteye.avg.y))
 
         # if already in pushmode, do nothing...
         if self.ispushmode:
@@ -219,9 +299,9 @@ class EyeTribe():
             self.hbeater.start()
 
         # ... and listener that picks up frames (and handles the push mode)
-        self.puller = threading.Thread(target=puller, kwargs={})
-        self.puller.daemon = True
-        self.puller.start()
+        self.listener = threading.Thread(target=listener, kwargs={})
+        self.listener.daemon = True
+        self.listener.start()
 
         return
 
@@ -230,16 +310,16 @@ class EyeTribe():
         change to pull mode, i.e. prompt for next data set whenever you want one
         requires a connected tracker that also has been calibrated
         """
-        # now end the pull mode (and let the puller thread read the reply, hopefully)
 
         if self.ispushmode:
-            sys.stderr.write("trying to stop the puller...\n")
-            self.ispushmode = False     # will cause the puller to stop the eye tracker pushing
+            # Now end the pull mode - the listener thread may read the reply (when implemented...)
+            sys.stderr.write("trying to stop the listener...\n")
+            self.ispushmode = False     # will cause the listener to stop the eye tracker pushing
             self.sock.send(EyeTribe.etm_set_pull.encode())
 
         # sync for it to stop
-        self.puller.join(min((self.hbinterval*2, 10)))
-        if self.puller.isAlive():
+        self.listener.join(min((self.hbinterval*2, 10)))
+        if self.listener.isAlive():
             sys.stderr.write("thread did not terminate as expected\n")
         else:
             sys.stderr.write("threads ended normally\n")
@@ -254,18 +334,15 @@ class EyeTribe():
             return self.queue.get()
         else:
             self.sock.send(EyeTribe.etm_get_frame.encode())
-            r = self.sock.recv(EyeTribe.etm_buffer_size)
+            r = self.sock.recv(EyeTribe.etm_buffer_size).decode()
 
-            try:
-                p = json.loads(r.decode())
+            p = json.loads(r)
 
-                sc = p['statuscode']
-                if sc != 200:
-                    raise Exception("connection failed, protocol error (%d)", sc)
-                return EyeTribe.Frame(p['values']['frame'])
+            sc = p['statuscode']
+            if sc != 200:
+                raise Exception("connection failed, protocol error (%d)", sc)
+            return EyeTribe.Frame(p['values']['frame'])
 
-            except ValueError:
-                raise
 
 # Example usage:
 
@@ -279,7 +356,7 @@ tracker.pushmode()
 count = 0
 while count < 100:
     n = tracker.next()
-    sys.stderr.write (n.marshall() + '\n')
+    sys.stderr.write(str(n) + '\n')
     count += 1
 
 tracker.pullmode()
