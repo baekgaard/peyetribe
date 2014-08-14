@@ -3,26 +3,26 @@ Simple python interface to the Eye Tribe eyetracker
 
 A simple usage scenario is as follows:
 
-    import peyetribe
-    import sys
+    from peyetribe import eyetribe
+    import time
 
-    tracker = EyeTribe()    # Create a tracker object (defaults to localhost:6555)
-    tracker.connect()       # Initiate the TCP/IP connection to the tracker
+    tracker = eyetribe()
+    tracker.connect()
+    n = tracker.next()
 
-    n = tracker.next()      # Default is pull mode: Just get a frame from the tracker
-                            # Access e.g. current gaze x coordinate as avg = n.getavg().x
+    print("dT;aT;Fix;State;Rwx;Rwy;Avx;Avy;LRwx;LRwy;LAvx;LAvy;RSz;LCx;LCy;RRwx;RRwy;RAvx;RAvy;RS;RCx;RCy\n")
 
-    tracker.pushmode()      # Switch to push mode
-
-    count = 0               # Print out the next 100 gaze coordinates
+    starttime = time.clock()
+    tracker.pushmode()
+    count = 0
     while count < 100:
-        n = tracker.next()  # Gets next coordinate from queue (blocking!), now in push mode
-        sys.stderr.write(str(n) + '\n')
+        n = tracker.next()
+        print(str(n))
         count += 1
 
-    tracker.pullmode()      # End push mode
+    tracker.pullmode()
 
-    tracker.close()         # Disconnect from tracker
+    tracker.close()
 
 
 Created by Per Baekgaard / pgba@dtu.dk / baekgaard@b4net.dk, March 2014
@@ -50,24 +50,29 @@ __author__ = "Per Baekgaard"
 __copyright__ = \
     "Copyright (c) 2014, Per Baekgaard, Technical University of Denmark, DTU Informatics, Cognitive Systems Section"
 __license__ = "MIT"
-__version__ = "0.1"
+__version__ = "0.2"
 __email__ = "pgba@dtu.dk"
 __status__ = "Alpha"
 
+import sys
+
+if sys.version_info[0] == 2:
+    import Queue as q
+else:
+    import queue as q
+
 import threading
-import queue
 import time
 import socket
 import json
-import sys
 
 
-class EyeTribe():
+class eyetribe():
     """
     Main class to handle the Eye Tracker
 
-    Includes subclasses Frame (that holds an entire tracker frame with both-eye positions) and its
-    Eye and Coord subclasses holding (single eye) data and all x,y coordinates
+    Includes subclasses frame (that holds an entire tracker frame with both-eye positions) and its
+    eye and coord subclasses holding (single eye) data and all x,y coordinates
     """
 
     etm_get_init = '{ "category": "tracker", "request" : "get", "values": [ "iscalibrated", "heartbeatinterval" ] }'
@@ -75,20 +80,21 @@ class EyeTribe():
     etm_set_pull = '{ "category": "tracker", "request" : "set", "values": { "push": false } }'
     etm_get_frame = '{ "category": "tracker", "request" : "get", "values": [ "frame" ] }'
     etm_heartbeat = '{ "category": "heartbeat" }'
-    etm_buffer_size = 1024
+    etm_buffer_size = 4096
 
-    class Frame():
+    class frame():
         """
-        Holds a complete Frame from the eye tracker
+        Holds a complete frame from the eye tracker
 
         Access via accessor functions get... or convert to string via str(...)
         """
-        class Coord():
+        class coord():
             """Single (x,y) positions relative to screen typically"""
-            def __init__(self, x=0, y=0, ssep=';'):
+            def __init__(self, x=0, y=0, ssep=';', fmt="%d"):
                 self.x = x
                 self.y = y
                 self.ssep = ssep
+                self.fmt = fmt
 
             def getx(self):
                 return self.x
@@ -97,9 +103,9 @@ class EyeTribe():
                 return self.y
 
             def __str__(self):
-                return "%d%s%d" % (self.x, self.ssep, self.y)
+                return (self.fmt + "%s" + self.fmt) % (self.x, self.ssep, self.y)
 
-        class Eye:
+        class eye:
             """Single-eye data including gaze coordinates and pupil sizes etc"""
             def __init__(self, raw, avg, psize, pcenter, ssep=';'):
                 self.raw = raw
@@ -125,30 +131,38 @@ class EyeTribe():
                        (str(self.raw), self.ssep, str(self.avg), self.ssep, self.psize, self.ssep, str(self.pcenter))
 
         def __init__(self, json, ssep=';'):
-            """Takes a json dictionary and creates an (unpacked) Frame object"""
+            """Takes a json dictionary and creates an (unpacked) frame object"""
+            self.etime = time.time()
             self.time = json['time']
+            self.timestamp = json['timestamp']
             self.fix = json['fix']
             self.state = json['state']
-            self.raw = EyeTribe.Frame.Coord(json['raw']['x'], json['raw']['y'])
-            self.avg = EyeTribe.Frame.Coord(json['avg']['x'], json['avg']['y'])
+            self.raw = eyetribe.frame.coord(json['raw']['x'], json['raw']['y'])
+            self.avg = eyetribe.frame.coord(json['avg']['x'], json['avg']['y'])
             eye = json['lefteye']
-            self.lefteye = EyeTribe.Frame.Eye(
-                EyeTribe.Frame.Coord(eye['raw']['x'], eye['raw']['y']),
-                EyeTribe.Frame.Coord(eye['avg']['x'], eye['avg']['y']),
+            self.lefteye = eyetribe.frame.eye(
+                eyetribe.frame.coord(eye['raw']['x'], eye['raw']['y']),
+                eyetribe.frame.coord(eye['avg']['x'], eye['avg']['y']),
                 eye['psize'],
-                EyeTribe.Frame.Coord(eye['pcenter']['x'], eye['pcenter']['y'])
+                eyetribe.frame.coord(eye['pcenter']['x'], eye['pcenter']['y'], fmt="%.3f")
             )
             eye = json['righteye']
-            self.righteye = EyeTribe.Frame.Eye(
-                EyeTribe.Frame.Coord(eye['raw']['x'], eye['raw']['y']),
-                EyeTribe.Frame.Coord(eye['avg']['x'], eye['avg']['y']),
+            self.righteye = eyetribe.frame.eye(
+                eyetribe.frame.coord(eye['raw']['x'], eye['raw']['y']),
+                eyetribe.frame.coord(eye['avg']['x'], eye['avg']['y']),
                 eye['psize'],
-                EyeTribe.Frame.Coord(eye['pcenter']['x'], eye['pcenter']['y'])
+                eyetribe.frame.coord(eye['pcenter']['x'], eye['pcenter']['y'], fmt="%.3f")
             )
             self.ssep = ssep
 
+        def getetime(self):
+            return self.etime
+
         def gettime(self):
             return self.time
+
+        def gettimestamp(self):
+            return self.timestamp
 
         def getfix(self):
             return self.fix
@@ -166,14 +180,15 @@ class EyeTribe():
                 return self.righteye
 
         def __str__(self):
+            # header = "eT;dT;aT;Fix;State;Rwx;Rwy;Avx;Avy;LRwx;LRwy;LAvx;LAvy;RSz;LCx;LCy;RRwx;RRwy;RAvx;RAvy;RS;RCx;RCy"
             st = 'L' if (self.state & 0x10) else '.'
             st += 'F' if (self.state & 0x08) else '.'
             st += 'P' if (self.state & 0x04) else '.'
             st += 'E' if (self.state & 0x02) else '.'
             st += 'G' if (self.state & 0x01) else '.'
             f = 'F' if self.fix else 'N'
-            s = "%08.3f%s%s%s%s%s%s%s%s" % \
-                (self.time/1000, self.ssep, f, self.ssep, st, self.ssep, str(self.raw), self.ssep, str(self.avg))
+            s = "%014.3f%s%010.3f%s%s%s" % (self.etime, self.ssep, self.time/1000.0, self.ssep, self.timestamp, self.ssep,)
+            s += "%s%s%s%s%s%s%s" % (f, self.ssep, st, self.ssep, str(self.raw), self.ssep, str(self.avg))
             s += "%s%s" % (self.ssep, str(self.lefteye))
             s += "%s%s" % (self.ssep, str(self.righteye))
 
@@ -185,24 +200,29 @@ class EyeTribe():
         self.sock = None
         self.queue = None
         self.ispushmode = False
-        self.hbinterval = 0
+        self.hbinterval = 0 # Note: this is (converted to a value in) seconds
         self.hbeater = None
         self.listener = None
-        self.queue = queue.Queue()
+        self.queue = q.Queue()
         self.toffset = None
         self.ssep = ssep
 
     def connect(self):
         """
-        Connect an EyeTribe object to the actual Eye Tracker by establishing a TCP/IP connection
-        Also gets heartbeatinterval information (needed later for the call-back timing)
+        Connect an eyetribe object to the actual Eye Tracker by establishing a TCP/IP connection
+        Also gets heartbeatinterval information, which is needed later for the call-back timing
+        and also to set up sensible timeout values on the socket (if non-zero, otherwise 30s is used)
+
+        As this is a new connection, there can be nothing "pending" in the socket stream
+        and we thus don't have to care about reading more than one reply
         """
         if self.sock is None:
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.sock.connect((self.host, self.port))
 
-            self.sock.send(EyeTribe.etm_get_init.encode())
-            r = self.sock.recv(EyeTribe.etm_buffer_size).decode()
+            self.sock.send(eyetribe.etm_get_init.encode())
+            self.sock.settimeout(30)
+            r = self.sock.recv(eyetribe.etm_buffer_size).decode()
 
             try:
                 p = json.loads(r)
@@ -211,7 +231,9 @@ class EyeTribe():
                 if sc != 200:
                     raise Exception("connection failed, protocol error (%d)", sc)
 
-                self.hbinterval = p['values']['heartbeatinterval']
+                self.hbinterval = int(p['values']['heartbeatinterval']) / 1000.0
+                if self.hbinterval != 0:
+                    self.sock.settimeout(self.hbinterval*2)
             except ValueError:
                 raise
 
@@ -241,62 +263,90 @@ class EyeTribe():
 
         Also resets the tracker time, so all returned frames are relative to the timing
         of the first returned frame
+
+        This also contains the threaded functions to handle callback and listener operations
         """
 
         def hbeater():
             """sends heartbeats at the required interval, but does not read the reply"""
             while self.ispushmode:
-                time.sleep(self.hbinterval/1000)
-                sys.stderr.write("sending heartbeat\n")
-                self.sock.send(EyeTribe.etm_heartbeat.encode())
+                self.sock.send(eyetribe.etm_heartbeat.encode())
+                # sys.stderr.write("sending heartbeat\n")
+                time.sleep(self.hbinterval)
+            # sys.stderr.write("normal termination of heartbeater\n")
             return
 
         def listener():
             """process pushed data (and heartbeat replies and other stuff returned) from the tracker in push mode"""
 
             while self.ispushmode:
-                # Keep going until we're asked to terminate
-                # TODO: Could hang, change to non-blocking recv with e.g. 2x hb interval
+                # Keep going until we're asked to terminate (or we timeout with an error)
                 # TODO: Make sure we have processed the final OK reply to change back to pull mode
-                r = self.sock.recv(EyeTribe.etm_buffer_size)
-                p = json.loads(r.decode())
+                # but the tracker does not guarantee that it doens't send another coordinate to us,
+                # so it isn't really so important here to clean the queue as it will happen later
+                # as/if needed
+                try:
+                    r = self.sock.recv(eyetribe.etm_buffer_size)
 
-                sc = p['statuscode']
-                if sc != 200:
-                    raise Exception("connection failed, protocol error (%d)", sc)
+                    # Handle multiple 'frames' (but TODO: not currently split frames), somehow assuming the 
+                    # non-documented newline being sent from the tracker as it currently does
+                    for js in r.decode().split("\n"):   # This will also return some empty lines sometimes...
+                        if js.strip() != "":
+                            f = json.loads(js)
+                            # check for any errors, and bail out if we get one!
+                            sc = f['statuscode']
+                            if sc != 200:
+                                self.ispushmode = False
+                                raise Exception("connection failed, protocol error (%d)", sc)
 
-                # process replies with frames and store those to queue, discarding all other data for now
-                # although we could also save other replies as needed about state etc
-                if p['category'] != "heartbeat" and 'values' in p and 'frame' in p['values']:
-                    f = EyeTribe.Frame(p['values']['frame'])
+                            # process replies with frames and store those to queue, discarding all other data for now
+                            # although we could also save other replies as needed about state etc
+                            if f['category'] != "heartbeat" and 'values' in f and 'frame' in f['values']:
+                                f = eyetribe.frame(f['values']['frame'])
 
-                    if self.toffset is None:
-                        self.toffset = f.time
-                    f.time -= self.toffset
+                                if self.toffset is None:
+                                    self.toffset = f.time
+                                f.time -= self.toffset
 
-                    self.queue.put(f)
+                                self.queue.put(f)
+                            # else:
+                                # sys.stderr.write("Got reply on %s from tracker\n" % f['category'])
+                                # sys.stderr.write("%s\n" % js)
+
+                except socket.timeout:
+
+                    # if the final "OK" message didn't get to us, then we're OK; otherwise complain
+                    # sys.stderr.write("timeout on listener thread\n")
+                    if self.ispushmode:
+                        self.ispushmode = False
+                        raise Exception("The pushmode connection failed with a timeout; lost tracker connection?")
+
+            # sys.stderr.write("(normal?) termination of listener\n")
 
         # if already in pushmode, do nothing...
         if self.ispushmode:
             return
 
-        sys.stderr.write("switching to push mode...\n")
+        # sys.stderr.write("switching to push mode...\n")
 
         self.ispushmode = True
 
-        # set eye tracker to push mode and read it's reply
-        self.sock.send(EyeTribe.etm_set_push.encode())
-        r = self.sock.recv(EyeTribe.etm_buffer_size)
+        # set eye tracker to push mode and read it's reply (only one, we hope)
+        # TODO: The eye tracker behaviour is not clear here; race conditions could appear
+        self.sock.send(eyetribe.etm_set_push.encode())
+        r = self.sock.recv(eyetribe.etm_buffer_size)
         p = json.loads(r.decode())
         sc = p['statuscode']
         if sc != 200:
-            raise Exception("connection failed, protocol error (%d)", sc)
+            raise Exception("The connection failed with tracker protocol error (%d)", sc)
 
         # setup heart-beat generator
         if self.hbinterval != 0:
             self.hbeater = threading.Thread(target=hbeater, kwargs={})
             self.hbeater.daemon = True
             self.hbeater.start()
+        else:
+            self.hbeater = None
 
         # ... and listener that picks up frames (and handles the push mode)
         self.listener = threading.Thread(target=listener, kwargs={})
@@ -312,17 +362,24 @@ class EyeTribe():
         """
 
         if self.ispushmode:
-            # Now end the pull mode - the listener thread may read the reply (when implemented...)
-            sys.stderr.write("trying to stop the listener...\n")
-            self.ispushmode = False     # will cause the listener to stop the eye tracker pushing
-            self.sock.send(EyeTribe.etm_set_pull.encode())
+            # End the pull mode - the listener thread will read the reply
+            # sys.stderr.write("trying to stop the listener and heartbeater...\n")
+            self.ispushmode = False     # will cause the listener/hbeater to stop the eye tracker pushing
+            self.sock.send(eyetribe.etm_set_pull.encode())
 
-        # sync for it to stop
-        self.listener.join(min((self.hbinterval*2, 10)))
-        if self.listener.isAlive():
-            sys.stderr.write("thread did not terminate as expected\n")
-        else:
-            sys.stderr.write("threads ended normally\n")
+            # sync for it to stop
+            self.listener.join(min((self.hbinterval*2, 10)))
+            # sys.stderr.write("listener stopped...\n")
+            if self.listener.isAlive():
+                raise Exception("Listener thread did not terminate as expected; protocol error?")
+            self.listener = None
+
+            if self.hbinterval != 0:
+                self.hbeater.join(min((self.hbinterval*2, 10)))
+                # sys.stderr.write("listener stopped...\n")
+                if self.hbeater.isAlive():
+                    raise Exception("HeartBeater thread did not terminate as expected; protocol error?")
+                self.hbeater = None
 
         self.toffset = None
 
@@ -333,35 +390,40 @@ class EyeTribe():
         if self.ispushmode:
             return self.queue.get()
         else:
-            self.sock.send(EyeTribe.etm_get_frame.encode())
-            r = self.sock.recv(EyeTribe.etm_buffer_size).decode()
+            self.sock.send(eyetribe.etm_get_frame.encode())
+            r = self.sock.recv(eyetribe.etm_buffer_size).decode()
 
             p = json.loads(r)
 
             sc = p['statuscode']
             if sc != 200:
                 raise Exception("connection failed, protocol error (%d)", sc)
-            return EyeTribe.Frame(p['values']['frame'])
+            return eyetribe.frame(p['values']['frame'])
 
 
-# Example usage:
 
-sys.stderr.write("Starting up...\n")
-tracker = EyeTribe()
-tracker.connect()
-n = tracker.next()
+if __name__ == "__main__":
+    # Example usage -- this code is only executed if file is run directly
+    # not when imported as a module, but it shows how to use this module:
 
-starttime = time.clock()
-tracker.pushmode()
-count = 0
-while count < 100:
+    # from peyetribe import eyetribe
+    # import time
+
+    tracker = eyetribe()
+    tracker.connect()
     n = tracker.next()
-    sys.stderr.write(str(n) + '\n')
-    count += 1
 
-tracker.pullmode()
+    print("dT;aT;Fix;State;Rwx;Rwy;Avx;Avy;LRwx;LRwy;LAvx;LAvy;RSz;LCx;LCy;RRwx;RRwy;RAvx;RAvy;RS;RCx;RCy")
 
-tracker.close()
+    starttime = time.clock()
+    tracker.pushmode()
+    count = 0
+    while count < 100:
+        n = tracker.next()
+        print(str(n))
+        count += 1
 
+    tracker.pullmode()
 
+    tracker.close()
 
