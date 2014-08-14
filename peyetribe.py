@@ -187,7 +187,7 @@ class eyetribe():
         def getavg(self):
             return self.avg
 
-        def geteye(self, left=0):
+        def geteye(self, left=False):
             if left:
                 return self.lefteye
             else:
