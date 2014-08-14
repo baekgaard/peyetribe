@@ -26,6 +26,22 @@ A simple usage scenario is as follows:
 
     tracker.close()
 
+To use, import the eyetribe from the peyetribe module.
+
+Then create the tracker object and connect it. Data can then polled by calling tracker.next() repeatedly,
+or you can switch to pushmode by calling tracker.pushmode() and then continue retrieving data with 
+tracker.next(). When in pushmode, frames are stored on an internal queue and you're certain (almost) to
+receive a non-interrupted stream from the tracker according to the interval it runs at.
+
+When done switch out of pushmode by calling tracker.pullmode() and then finally tracker.close().
+
+When creating the tracker object, you can specify an alternative host or port as follows:
+
+    tracker = eyetribe(host="your.host.name", port=1234)
+
+This module works with both Python 2 and Python 3.
+
+
 Created by Per Baekgaard / pgba@dtu.dk / baekgaard@b4net.dk, March 2014
 
 Licensed under the MIT License:
