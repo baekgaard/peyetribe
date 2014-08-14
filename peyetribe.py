@@ -12,7 +12,6 @@ A simple usage scenario is as follows:
 
     print("eT;dT;aT;Fix;State;Rwx;Rwy;Avx;Avy;LRwx;LRwy;LAvx;LAvy;RSz;LCx;LCy;RRwx;RRwy;RAvx;RAvy;RS;RCx;RCy\n")
 
-    starttime = time.clock()
     tracker.pushmode()
     count = 0
     while count < 100:
@@ -148,7 +147,7 @@ class eyetribe():
         def __init__(self, json, ssep=';'):
             """Takes a json dictionary and creates an (unpacked) frame object"""
             self.etime = time.time()
-            self.time = json['time']
+            self.time = json['time'] / 1000.0
             self.timestamp = json['timestamp']
             self.fix = json['fix']
             self.state = json['state']
@@ -202,7 +201,7 @@ class eyetribe():
             st += 'E' if (self.state & 0x02) else '.'
             st += 'G' if (self.state & 0x01) else '.'
             f = 'F' if self.fix else 'N'
-            s = "%014.3f%s%010.3f%s%s%s" % (self.etime, self.ssep, self.time/1000.0, self.ssep, self.timestamp, self.ssep,)
+            s = "%014.3f%s%010.3f%s%s%s" % (self.etime, self.ssep, self.time, self.ssep, self.timestamp, self.ssep,)
             s += "%s%s%s%s%s%s%s" % (f, self.ssep, st, self.ssep, str(self.raw), self.ssep, str(self.avg))
             s += "%s%s" % (self.ssep, str(self.lefteye))
             s += "%s%s" % (self.ssep, str(self.righteye))
@@ -430,7 +429,6 @@ if __name__ == "__main__":
 
     print("eT;dT;aT;Fix;State;Rwx;Rwy;Avx;Avy;LRwx;LRwy;LAvx;LAvy;RSz;LCx;LCy;RRwx;RRwy;RAvx;RAvy;RS;RCx;RCy")
 
-    starttime = time.clock()
     tracker.pushmode()
     count = 0
     while count < 100:
