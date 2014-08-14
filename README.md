@@ -5,27 +5,26 @@ Simple python interface to the Eye Tribe eye tracker (http://theeyetribe.com)
 
 A simple usage scenario is as follows:
 
-    import peyetribe
-    import sys
+    from peyetribe import eyetribe
+    import time
 
-    tracker = EyeTribe()    # Create a tracker object (defaults to localhost:6555)
-    tracker.connect()       # Initiate the TCP/IP connection to the tracker
+    tracker = eyetribe()
+    tracker.connect()
+    n = tracker.next()
 
-    n = tracker.next()      # Default is pull mode: Just get a frame from the tracker
-                            # Access e.g. current gaze x coordinate as avg = n.getavg().x
+    print("eT;dT;aT;Fix;State;Rwx;Rwy;Avx;Avy;LRwx;LRwy;LAvx;LAvy;RSz;LCx;LCy;RRwx;RRwy;RAvx;RAvy;RS;RCx;RCy\n")
 
-    tracker.pushmode()      # Switch to push mode
-
-    count = 0               # Print out the next 100 gaze coordinates
+    starttime = time.clock()
+    tracker.pushmode()
+    count = 0
     while count < 100:
-        n = tracker.next()  # Gets next coordinate from queue (blocking!), now in push mode
-        sys.stderr.write(str(n) + '\n')
+        n = tracker.next()
+        print(str(n))
         count += 1
 
-    tracker.pullmode()      # End push mode
+    tracker.pullmode()
 
-    tracker.close()         # Disconnect from tracker
-
+    tracker.close()
 
 Created by Per Baekgaard / pgba@dtu.dk / baekgaard@b4net.dk, March 2014
 
