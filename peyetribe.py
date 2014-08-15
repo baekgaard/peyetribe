@@ -200,13 +200,14 @@ class eyetribe():
 
         def __str__(self):
             # header = "eT;dT;aT;Fix;State;Rwx;Rwy;Avx;Avy;LRwx;LRwy;LAvx;LAvy;RSz;LCx;LCy;RRwx;RRwy;RAvx;RAvy;RS;RCx;RCy"
+
             st = 'L' if (self.state & 0x10) else '.'
             st += 'F' if (self.state & 0x08) else '.'
             st += 'P' if (self.state & 0x04) else '.'
             st += 'E' if (self.state & 0x02) else '.'
             st += 'G' if (self.state & 0x01) else '.'
             f = 'F' if self.fix else 'N'
-            s = "%014.3f%s%010.3f%s%s%s" % (self.etime, self.ssep, self.time, self.ssep, self.timestamp, self.ssep,)
+            s = "%014.3f%s%07.3f%s%s%s" % (self.etime, self.ssep, self.time, self.ssep, self.timestamp, self.ssep,)
             s += "%s%s%s%s%s%s%s" % (f, self.ssep, st, self.ssep, str(self.raw), self.ssep, str(self.avg))
             s += "%s%s" % (self.ssep, str(self.lefteye))
             s += "%s%s" % (self.ssep, str(self.righteye))
@@ -416,12 +417,18 @@ class eyetribe():
         self.toffset = None
         self.pmcallback = None
 
-    def next(self):
+    def next(self, block=True):
         """
         returns the next (queued or pulled) dataset from the eyetracker
+
+        If block is False, and we're in pushmode and the queue is empty, None is returned immediatedly, 
+        otherwise we will wait for the next frame to arrive and return that
         """
         if self.ispushmode:
-            return self.queue.get()
+            try:
+                return self.queue.get(block)
+            except q.Empty:
+                return None
         else:
             self.sock.send(eyetribe.etm_get_frame.encode())
             r = self.sock.recv(eyetribe.etm_buffer_size).decode()
