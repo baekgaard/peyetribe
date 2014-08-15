@@ -32,6 +32,11 @@ receive a non-interrupted stream from the tracker according to the interval it r
 
 When done switch out of pushmode by calling tracker.pullmode() and then finally tracker.close().
 
+The tracker.pullmode optionally takes a callback argument. If specified, the callback will be called on
+the listener thread with the frame as a parameter. The callback can then either dispose of the frame somehow
+within the application -- in which case it should return True to indicate that the frame should not be queued.
+This could alternatively be used for filtering which frames are to be queued for later processing.
+
 When creating the tracker object, you can specify an alternative host or port as follows:
 
     tracker = eyetribe(host="your.host.name", port=1234)
@@ -218,6 +223,7 @@ class eyetribe():
         self.hbeater = None
         self.listener = None
         self.queue = q.Queue()
+        self.pmcallback = None
         self.toffset = None
         self.ssep = ssep
 
@@ -270,7 +276,7 @@ class eyetribe():
         else:
             raise Exception("cannot close an already closed connection")
 
-    def pushmode(self):
+    def pushmode(self, callback=None):
         """
         Change to push mode, i.e. setup and start receiving tracking data
         requires a connected tracker that also has been calibrated
@@ -279,6 +285,10 @@ class eyetribe():
         of the first returned frame
 
         This also contains the threaded functions to handle callback and listener operations
+
+        If not callback is given, frames are just stored to the queue and can be retrieved with 
+        the next operation; otherwise the callback is invoked with the event just parsed. 
+        Note that the callback is called on the listener thread!
         """
 
         def hbeater():
@@ -322,7 +332,13 @@ class eyetribe():
                                     self.toffset = f.time
                                 f.time -= self.toffset
 
-                                self.queue.put(f)
+                                if self.pmcallback != None:
+                                    dont_queue = self.pmcallback(f)
+                                else:
+                                    dont_queue = False
+
+                                if not dont_queue:
+                                    self.queue.put(f)
                             # else:
                                 # sys.stderr.write("Got reply on %s from tracker\n" % f['category'])
                                 # sys.stderr.write("%s\n" % js)
@@ -344,6 +360,8 @@ class eyetribe():
         # sys.stderr.write("switching to push mode...\n")
 
         self.ispushmode = True
+        if callback!=None:
+            self.pmcallback = callback
 
         # set eye tracker to push mode and read it's reply (only one, we hope)
         # TODO: The eye tracker behaviour is not clear here; race conditions could appear
@@ -396,6 +414,7 @@ class eyetribe():
                 self.hbeater = None
 
         self.toffset = None
+        self.pmcallback = None
 
     def next(self):
         """
