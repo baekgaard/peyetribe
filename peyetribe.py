@@ -3,7 +3,7 @@ Simple python interface to the Eye Tribe eye tracker (http://theeyetribe.com)
 
 A simple usage scenario is as follows:
 
-    from peyetribe import eyetribe
+    from peyetribe import EyeTribe
     import time
 
     tracker = eyetribe()
@@ -23,7 +23,7 @@ A simple usage scenario is as follows:
 
     tracker.close()
 
-To use, import the eyetribe from the peyetribe module.
+To use, import the EyeTribe from the peyetribe module.
 
 Then create the tracker object and connect it. Data can then polled by calling tracker.next() repeatedly,
 or you can switch to pushmode by calling tracker.pushmode() and then continue retrieving data with 
@@ -86,7 +86,7 @@ import socket
 import json
 
 
-class eyetribe():
+class EyeTribe():
     """
     Main class to handle the Eye Tracker
 
@@ -101,13 +101,13 @@ class eyetribe():
     etm_heartbeat = '{ "category": "heartbeat" }'
     etm_buffer_size = 4096
 
-    class frame():
+    class Frame():
         """
         Holds a complete frame from the eye tracker
 
         Access via accessor functions get... or convert to string via str(...)
         """
-        class coord():
+        class Coord():
             """Single (x,y) positions relative to screen typically"""
             def __init__(self, x=0, y=0, ssep=';', fmt="%d"):
                 self.x = x
@@ -115,16 +115,26 @@ class eyetribe():
                 self.ssep = ssep
                 self.fmt = fmt
 
-            def getx(self):
+            @property
+            def x(self):
                 return self.x
 
-            def gety(self):
+            @x.setter
+            def x(self, val):
+                self.x = val
+
+            @property
+            def y(self):
                 return self.y
+
+            @y.setter
+            def y(self, val):
+                self.y = val
 
             def __str__(self):
                 return (self.fmt + "%s" + self.fmt) % (self.x, self.ssep, self.y)
 
-        class eye:
+        class Eye:
             """Single-eye data including gaze coordinates and pupil sizes etc"""
             def __init__(self, raw, avg, psize, pcenter, ssep=';'):
                 self.raw = raw
@@ -133,17 +143,37 @@ class eyetribe():
                 self.pcenter = pcenter
                 self.ssep = ssep
 
-            def getraw(self):
+            @property
+            def raw(self):
                 return self.raw
 
-            def getavg(self):
+            @raw.setter
+            def raw(self, val):
+                self.raw = val
+
+            @property
+            def avg(self):
                 return self.avg
 
-            def getpsize(self):
+            @avg.setter
+            def avg(self, val):
+                self.avg = val
+
+            @property
+            def psize(self):
                 return self.psize
 
-            def getcenter(self):
+            @psize.setter
+            def psize(self, val):
+                self.psize = val
+
+            @property
+            def pcenter(self):
                 return self.pcenter
+
+            @pcenter.setter
+            def pcenter(self, val):
+                self.pcenter = val
 
             def __str__(self):
                 return "%s%s%s%s%.1f%s%s" % \
@@ -156,43 +186,89 @@ class eyetribe():
             self.timestamp = json['timestamp']
             self.fix = json['fix']
             self.state = json['state']
-            self.raw = eyetribe.frame.coord(json['raw']['x'], json['raw']['y'])
-            self.avg = eyetribe.frame.coord(json['avg']['x'], json['avg']['y'])
+            self.raw = EyeTribe.Frame.Coord(json['raw']['x'], json['raw']['y'])
+            self.avg = EyeTribe.Frame.Coord(json['avg']['x'], json['avg']['y'])
             eye = json['lefteye']
-            self.lefteye = eyetribe.frame.eye(
-                eyetribe.frame.coord(eye['raw']['x'], eye['raw']['y']),
-                eyetribe.frame.coord(eye['avg']['x'], eye['avg']['y']),
+            self.lefteye = EyeTribe.Frame.Eye(
+                EyeTribe.Frame.Coord(eye['raw']['x'], eye['raw']['y']),
+                EyeTribe.Frame.Coord(eye['avg']['x'], eye['avg']['y']),
                 eye['psize'],
-                eyetribe.frame.coord(eye['pcenter']['x'], eye['pcenter']['y'], fmt="%.3f")
+                EyeTribe.Frame.Coord(eye['pcenter']['x'], eye['pcenter']['y'], fmt="%.3f")
             )
             eye = json['righteye']
-            self.righteye = eyetribe.frame.eye(
-                eyetribe.frame.coord(eye['raw']['x'], eye['raw']['y']),
-                eyetribe.frame.coord(eye['avg']['x'], eye['avg']['y']),
+            self.righteye = EyeTribe.Frame.Eye(
+                EyeTribe.Frame.Coord(eye['raw']['x'], eye['raw']['y']),
+                EyeTribe.Frame.Coord(eye['avg']['x'], eye['avg']['y']),
                 eye['psize'],
-                eyetribe.frame.coord(eye['pcenter']['x'], eye['pcenter']['y'], fmt="%.3f")
+                EyeTribe.Frame.Coord(eye['pcenter']['x'], eye['pcenter']['y'], fmt="%.3f")
             )
             self.ssep = ssep
 
-        def getetime(self):
+        @property
+        def etime(self):
             return self.etime
 
-        def gettime(self):
+        @etime.setter
+        def etime(self, val):
+            self.etime = val
+
+        @property
+        def time(self):
             return self.time
 
-        def gettimestamp(self):
+        @time.setter
+        def time(self, val):
+            self.time = val
+
+        @property
+        def timestamp(self):
             return self.timestamp
 
-        def getfix(self):
+        @timestamp.setter
+        def timestamp(self, val):
+            self.timestamp = val
+
+        @property
+        def fix(self):
             return self.fix
 
-        def getstate(self):
+        @fix.setter
+        def fix(self, val):
+            self.fix = val
+
+        @property
+        def state(self):
             return self.state
 
-        def getavg(self):
+        @state.setter
+        def state(self, val):
+            self.state = val
+
+        @property
+        def avg(self):
             return self.avg
 
-        def geteye(self, left=False):
+        @avg.setter
+        def avg(self, val):
+            self.avg = val
+
+        @property
+        def lefteye(self):
+            return self.lefteye
+
+        @lefteye.setter
+        def lefteye(self, val):
+            self.lefteye = val
+
+        @property
+        def righteye(self):
+            return self.righteye
+
+        @righteye.setter
+        def righteye(self, val):
+            self.righteye = val
+
+        def eye(self, left=False):
             if left:
                 return self.lefteye
             else:
@@ -241,9 +317,9 @@ class eyetribe():
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.sock.connect((self.host, self.port))
 
-            self.sock.send(eyetribe.etm_get_init.encode())
+            self.sock.send(EyeTribe.etm_get_init.encode())
             self.sock.settimeout(30)
-            r = self.sock.recv(eyetribe.etm_buffer_size).decode()
+            r = self.sock.recv(EyeTribe.etm_buffer_size).decode()
 
             try:
                 p = json.loads(r)
@@ -295,7 +371,7 @@ class eyetribe():
         def hbeater():
             """sends heartbeats at the required interval, but does not read the reply"""
             while self.ispushmode:
-                self.sock.send(eyetribe.etm_heartbeat.encode())
+                self.sock.send(EyeTribe.etm_heartbeat.encode())
                 # sys.stderr.write("sending heartbeat\n")
                 time.sleep(self.hbinterval)
             # sys.stderr.write("normal termination of heartbeater\n")
@@ -311,7 +387,7 @@ class eyetribe():
                 # so it isn't really so important here to clean the queue as it will happen later
                 # as/if needed
                 try:
-                    r = self.sock.recv(eyetribe.etm_buffer_size)
+                    r = self.sock.recv(EyeTribe.etm_buffer_size)
 
                     # Handle multiple 'frames' (but TODO: not currently split frames), somehow assuming the 
                     # non-documented newline being sent from the tracker as it currently does
@@ -327,7 +403,7 @@ class eyetribe():
                             # process replies with frames and store those to queue, discarding all other data for now
                             # although we could also save other replies as needed about state etc
                             if f['category'] != "heartbeat" and 'values' in f and 'frame' in f['values']:
-                                f = eyetribe.frame(f['values']['frame'])
+                                f = EyeTribe.Frame(f['values']['frame'])
 
                                 if self.toffset is None:
                                     self.toffset = f.time
@@ -366,8 +442,8 @@ class eyetribe():
 
         # set eye tracker to push mode and read it's reply (only one, we hope)
         # TODO: The eye tracker behaviour is not clear here; race conditions could appear
-        self.sock.send(eyetribe.etm_set_push.encode())
-        r = self.sock.recv(eyetribe.etm_buffer_size)
+        self.sock.send(EyeTribe.etm_set_push.encode())
+        r = self.sock.recv(EyeTribe.etm_buffer_size)
         p = json.loads(r.decode())
         sc = p['statuscode']
         if sc != 200:
@@ -398,7 +474,7 @@ class eyetribe():
             # End the pull mode - the listener thread will read the reply
             # sys.stderr.write("trying to stop the listener and heartbeater...\n")
             self.ispushmode = False     # will cause the listener/hbeater to stop the eye tracker pushing
-            self.sock.send(eyetribe.etm_set_pull.encode())
+            self.sock.send(EyeTribe.etm_set_pull.encode())
 
             # sync for it to stop
             self.listener.join(min((self.hbinterval*2, 10)))
@@ -430,15 +506,15 @@ class eyetribe():
             except q.Empty:
                 return None
         else:
-            self.sock.send(eyetribe.etm_get_frame.encode())
-            r = self.sock.recv(eyetribe.etm_buffer_size).decode()
+            self.sock.send(EyeTribe.etm_get_frame.encode())
+            r = self.sock.recv(EyeTribe.etm_buffer_size).decode()
 
             p = json.loads(r)
 
             sc = p['statuscode']
             if sc != 200:
                 raise Exception("connection failed, protocol error (%d)", sc)
-            return eyetribe.frame(p['values']['frame'])
+            return EyeTribe.Frame(p['values']['frame'])
 
 
 
@@ -449,7 +525,7 @@ if __name__ == "__main__":
     # from peyetribe import eyetribe
     # import time
 
-    tracker = eyetribe()
+    tracker = EyeTribe()
     tracker.connect()
     n = tracker.next()
 
