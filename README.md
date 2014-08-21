@@ -5,16 +5,15 @@ Simple python interface to the Eye Tribe eye tracker (http://theeyetribe.com)
 
 A simple usage scenario is as follows:
 
-    from peyetribe import eyetribe
+    from peyetribe import EyeTribe
     import time
 
-    tracker = eyetribe()
+    tracker = EyeTribe()
     tracker.connect()
     n = tracker.next()
 
     print("eT;dT;aT;Fix;State;Rwx;Rwy;Avx;Avy;LRwx;LRwy;LAvx;LAvy;RSz;LCx;LCy;RRwx;RRwy;RAvx;RAvy;RS;RCx;RCy\n")
 
-    starttime = time.clock()
     tracker.pushmode()
     count = 0
     while count < 100:
@@ -26,7 +25,7 @@ A simple usage scenario is as follows:
 
     tracker.close()
 
-To use, import the eyetribe from the peyetribe module.
+To use, import the EyeTribe from the peyetribe module.
 
 Then create the tracker object and connect it. Data can then polled by calling tracker.next() repeatedly,
 or you can switch to pushmode by calling tracker.pushmode() and then continue retrieving data with 
@@ -35,9 +34,14 @@ receive a non-interrupted stream from the tracker according to the interval it r
 
 When done switch out of pushmode by calling tracker.pullmode() and then finally tracker.close().
 
+The tracker.pullmode optionally takes a callback argument. If specified, the callback will be called on
+the listener thread with the frame as a parameter. The callback can then either dispose of the frame somehow
+within the application -- in which case it should return True to indicate that the frame should not be queued.
+This could alternatively be used for filtering which frames are to be queued for later processing.
+
 When creating the tracker object, you can specify an alternative host or port as follows:
 
-    tracker = eyetribe(host="your.host.name", port=1234)
+    tracker = EyeTribe(host="your.host.name", port=1234)
 
 This module works with both Python 2 and Python 3.
 
@@ -61,5 +65,3 @@ LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE A
 IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
 WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
 OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-

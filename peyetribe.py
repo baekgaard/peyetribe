@@ -1,47 +1,7 @@
 """
-Simple python interface to the Eye Tribe eye tracker (http://theeyetribe.com)
+Simple python (2 and 3) interface to the Eye Tribe eye tracker (http://theeyetribe.com)
 
-A simple usage scenario is as follows:
-
-    from peyetribe import EyeTribe
-    import time
-
-    tracker = eyetribe()
-    tracker.connect()
-    n = tracker.next()
-
-    print("eT;dT;aT;Fix;State;Rwx;Rwy;Avx;Avy;LRwx;LRwy;LAvx;LAvy;RSz;LCx;LCy;RRwx;RRwy;RAvx;RAvy;RS;RCx;RCy\n")
-
-    tracker.pushmode()
-    count = 0
-    while count < 100:
-        n = tracker.next()
-        print(str(n))
-        count += 1
-
-    tracker.pullmode()
-
-    tracker.close()
-
-To use, import the EyeTribe from the peyetribe module.
-
-Then create the tracker object and connect it. Data can then polled by calling tracker.next() repeatedly,
-or you can switch to pushmode by calling tracker.pushmode() and then continue retrieving data with 
-tracker.next(). When in pushmode, frames are stored on an internal queue and you're certain (almost) to
-receive a non-interrupted stream from the tracker according to the interval it runs at.
-
-When done switch out of pushmode by calling tracker.pullmode() and then finally tracker.close().
-
-The tracker.pullmode optionally takes a callback argument. If specified, the callback will be called on
-the listener thread with the frame as a parameter. The callback can then either dispose of the frame somehow
-within the application -- in which case it should return True to indicate that the frame should not be queued.
-This could alternatively be used for filtering which frames are to be queued for later processing.
-
-When creating the tracker object, you can specify an alternative host or port as follows:
-
-    tracker = eyetribe(host="your.host.name", port=1234)
-
-This module works with both Python 2 and Python 3.
+See README.md for instructions
 
 
 Created by Per Baekgaard / pgba@dtu.dk / baekgaard@b4net.dk, March 2014
@@ -82,16 +42,19 @@ else:
 
 import threading
 import time
+from datetime import datetime
 import socket
 import json
 
 
 class EyeTribe():
-    """
-    Main class to handle the Eye Tracker
 
-    Includes subclasses frame (that holds an entire tracker frame with both-eye positions) and its
-    eye and coord subclasses holding (single eye) data and all x,y coordinates
+    """
+    Main class to handle the Eye Tracker interface and values.
+
+    Includes subclasses Frame (that holds an entire tracker frame with 
+    both-eye positions) and its Eye and Coord subclasses holding (single eye) 
+    data and all (x,y) coordinates of eye and bounding boxes
     """
 
     etm_get_init = '{ "category": "tracker", "request" : "get", "values": [ "iscalibrated", "heartbeatinterval" ] }'
@@ -102,13 +65,17 @@ class EyeTribe():
     etm_buffer_size = 4096
 
     class Frame():
-        """
-        Holds a complete frame from the eye tracker
 
-        Access via accessor functions get... or convert to string via str(...)
         """
+        Holds a complete decoded frame from the eye tracker.
+
+        Access members via accessor functions or convert to string via str(...)
+        """
+
         class Coord():
-            """Single (x,y) positions relative to screen typically"""
+
+            """Single (x,y) positions relative to screen or bounding box."""
+
             def __init__(self, x=0, y=0, ssep=';', fmt="%d"):
                 self._x = x
                 self._y = y
@@ -117,6 +84,7 @@ class EyeTribe():
 
             @property
             def x(self):
+                """The horizontal cartesian offset (abcissa)."""
                 return self._x
 
             @x.setter
@@ -125,17 +93,20 @@ class EyeTribe():
 
             @property
             def y(self):
+                """The vertical cartesian offset (ordinate)."""
                 return self._y
 
             @y.setter
             def y(self, val):
                 self._y = val
 
-            def __str__(self):
+            def __repr__(self):
                 return (self._fmt + "%s" + self._fmt) % (self._x, self._ssep, self._y)
 
         class Eye:
-            """Single-eye data including gaze coordinates and pupil sizes etc"""
+
+            """Single-eye data, including gaze coordinates and pupil size"""
+
             def __init__(self, raw, avg, psize, pcenter, ssep=';'):
                 self._raw = raw
                 self._avg = avg
@@ -145,6 +116,7 @@ class EyeTribe():
 
             @property
             def raw(self):
+                """The raw (unfiltered) cartesian eye coordinate vs screen coordinates."""
                 return self._raw
 
             @raw.setter
@@ -153,6 +125,7 @@ class EyeTribe():
 
             @property
             def avg(self):
+                """The averaged (filtered) cartesian eye coordinate vs screen coordinates."""
                 return self._avg
 
             @avg.setter
@@ -161,6 +134,7 @@ class EyeTribe():
 
             @property
             def psize(self):
+                """A relative estimate of the pupil size."""
                 return self._psize
 
             @psize.setter
@@ -169,21 +143,29 @@ class EyeTribe():
 
             @property
             def pcenter(self):
+                """The center coordinate of the eye within the bounding box."""
                 return self._pcenter
 
             @pcenter.setter
             def pcenter(self, val):
                 self._pcenter = val
 
-            def __str__(self):
+            def __repr__(self):
                 return "%s%s%s%s%.1f%s%s" % \
                        (str(self._raw), self._ssep, str(self._avg), self._ssep, self._psize, self._ssep, str(self._pcenter))
 
         def __init__(self, json, ssep=';'):
-            """Takes a json dictionary and creates an (unpacked) frame object"""
+            """
+            Creates a frame based on an unpacked version of the eye tracker json string.
+
+            The ssep is used for separating values when the frame is converted to
+            a string, as in a print statement. This is useful for dumping csv files.
+            """
+
             self._etime = time.time()
             self._time = json['time'] / 1000.0
-            self._timestamp = json['timestamp']
+            ts = datetime.strptime(json['timestamp'], "%Y-%m-%d %H:%M:%S.%f")
+            self._timestamp = int(ts.strftime("%s")) + int(ts.strftime("%f"))/1000000.0 
             self._fix = json['fix']
             self._state = json['state']
             self._raw = EyeTribe.Frame.Coord(json['raw']['x'], json['raw']['y'])
@@ -206,6 +188,7 @@ class EyeTribe():
 
         @property
         def etime(self):
+            """The wall-time epoch at the point when the frame is unpacked on the client."""
             return self._etime
 
         @etime.setter
@@ -214,6 +197,7 @@ class EyeTribe():
 
         @property
         def time(self):
+            """A monotoneous clock value from the tracker."""
             return self._time
 
         @time.setter
@@ -222,6 +206,7 @@ class EyeTribe():
 
         @property
         def timestamp(self):
+            """The wall-time epoch at the point the eye tracker server created the frame."""
             return self._timestamp
 
         @timestamp.setter
@@ -230,6 +215,7 @@ class EyeTribe():
 
         @property
         def fix(self):
+            """The fixation flag (True or False) from the eye tracker."""
             return self._fix
 
         @fix.setter
@@ -238,6 +224,7 @@ class EyeTribe():
 
         @property
         def state(self):
+            """The state from the eye tracker (a numeric value)."""
             return self._state
 
         @state.setter
@@ -246,6 +233,7 @@ class EyeTribe():
 
         @property
         def avg(self):
+            """An averaged fixation coordinate based on both eyes."""
             return self._avg
 
         @avg.setter
@@ -253,7 +241,17 @@ class EyeTribe():
             self._avg = val
 
         @property
+        def raw(self):
+            """The raw (unfiltered) fixation coordinate based on both eyes."""
+            return self._raw
+
+        @raw.setter
+        def raw(self, val):
+            self._raw = val
+
+        @property
         def lefteye(self):
+            """Left eye coordinates, pupil position and size."""
             return self._lefteye
 
         @lefteye.setter
@@ -262,6 +260,7 @@ class EyeTribe():
 
         @property
         def righteye(self):
+            """Right eye coordinates, pupil position and size."""
             return self._righteye
 
         @righteye.setter
@@ -274,7 +273,7 @@ class EyeTribe():
             else:
                 return self._righteye
 
-        def __str__(self):
+        def __repr__(self):
             # header = "eT;dT;aT;Fix;State;Rwx;Rwy;Avx;Avy;LRwx;LRwy;LAvx;LAvy;RSz;LCx;LCy;RRwx;RRwy;RAvx;RAvy;RS;RCx;RCy"
 
             st = 'L' if (self._state & 0x10) else '.'
@@ -291,6 +290,13 @@ class EyeTribe():
             return s
 
     def __init__(self, host='localhost', port=6555, ssep=';'):
+        """
+        Create an EyeTribe connection object that can be used to connect to an eye tracker.
+
+        Parameters host and port are the values to use when connecting to the tracker.
+        The ssep can be used to specify an alternative value for value separators when
+        printing out a value.
+        """
         self._host = host
         self._port = port
         self._sock = None
@@ -306,13 +312,15 @@ class EyeTribe():
 
     def connect(self):
         """
-        Connect an eyetribe object to the actual Eye Tracker by establishing a TCP/IP connection
+        Connect an eyetribe object to the actual Eye Tracker by establishing a TCP/IP connection.
+
         Also gets heartbeatinterval information, which is needed later for the call-back timing
-        and also to set up sensible timeout values on the socket (if non-zero, otherwise 30s is used)
+        and to set up sensible timeout values on the socket (if non-zero, otherwise 30s is used)
 
         As this is a new connection, there can be nothing "pending" in the socket stream
         and we thus don't have to care about reading more than one reply
         """
+
         if self._sock is None:
             self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self._sock.connect((self._host, self._port))
@@ -338,7 +346,7 @@ class EyeTribe():
             raise Exception("cannot connect an already connected socket; close it first")
 
     def bind(self, host='localhost', port=6555):
-        """(Re)binds a non-connected Eye Tribe object to another host/port"""
+        """(Re)binds a non-connected Eye Tribe object to another host/port."""
         if not self._sock is None:
             self._host = host
             self._port = port
@@ -346,7 +354,7 @@ class EyeTribe():
             raise Exception("cannot (re)bind a connected socket; close it first")
 
     def close(self):
-        """Close TCP/IP connection, returning the object back to its starting condition"""
+        """Close TCP/IP connection, returning the object back to its starting condition."""
         if not self._sock.close is None:
             self._sock.close()
             self._sock = None
@@ -356,20 +364,23 @@ class EyeTribe():
     def pushmode(self, callback=None):
         """
         Change to push mode, i.e. setup and start receiving tracking data
-        requires a connected tracker that also has been calibrated
 
-        Also resets the tracker time, so all returned frames are relative to the timing
-        of the first returned frame
+        Requires a connected tracker that also has been calibrated
 
-        This also contains the threaded functions to handle callback and listener operations
+        If callback is not given, frames are just stored to the queue and can be retrieved with 
+        the next() operation; otherwise the callback is invoked with the new frame as parameter. 
+        The callback can return True to indicate that no further processing should be done
+        on the frame; otherwise the frame will be queued as normal for later retrieval by next().
 
-        If not callback is given, frames are just stored to the queue and can be retrieved with 
-        the next operation; otherwise the callback is invoked with the event just parsed. 
         Note that the callback is called on the listener thread!
+
+        This function also contains the threaded functions handling callback and listener operations
+
         """
 
         def hbeater():
-            """sends heartbeats at the required interval, but does not read the reply"""
+            """sends heartbeats at the required interval, but does not read the reply."""
+
             while self._ispushmode:
                 self._sock.send(EyeTribe.etm_heartbeat.encode())
                 # sys.stderr.write("sending heartbeat\n")
@@ -378,14 +389,10 @@ class EyeTribe():
             return
 
         def listener():
-            """process pushed data (and heartbeat replies and other stuff returned) from the tracker in push mode"""
+            """process pushed data (and heartbeat replies and other stuff returned) from the tracker in push mode."""
 
             while self._ispushmode:
                 # Keep going until we're asked to terminate (or we timeout with an error)
-                # TODO: Make sure we have processed the final OK reply to change back to pull mode
-                # but the tracker does not guarantee that it doens't send another coordinate to us,
-                # so it isn't really so important here to clean the queue as it will happen later
-                # as/if needed
                 try:
                     r = self._sock.recv(EyeTribe.etm_buffer_size)
 
@@ -407,7 +414,7 @@ class EyeTribe():
 
                                 if self._toffset is None:
                                     self._toffset = f.time
-                                f.time -= self._toffset
+                                # f.time -= self._toffset
 
                                 if self._pmcallback != None:
                                     dont_queue = self._pmcallback(f)
@@ -422,7 +429,7 @@ class EyeTribe():
 
                 except socket.timeout:
 
-                    # if the final "OK" message didn't get to us, then we're OK; otherwise complain
+                    # The final "OK" message didn't get to us, but we're still OK; otherwise complain
                     # sys.stderr.write("timeout on listener thread\n")
                     if self._ispushmode:
                         self._ispushmode = False
@@ -466,8 +473,9 @@ class EyeTribe():
 
     def pullmode(self):
         """
-        change to pull mode, i.e. prompt for next data set whenever you want one
-        requires a connected tracker that also has been calibrated
+        Change to pull mode, i.e. prompt by calling next() whenever you pull for a frame.
+
+        Requires a connected tracker that also has been calibrated
         """
 
         if self._ispushmode:
@@ -495,7 +503,7 @@ class EyeTribe():
 
     def next(self, block=True):
         """
-        returns the next (queued or pulled) dataset from the eyetracker
+        Returns the next (queued or pulled) dataset from the eyetracker.
 
         If block is False, and we're in pushmode and the queue is empty, None is returned immediatedly, 
         otherwise we will wait for the next frame to arrive and return that
@@ -519,11 +527,13 @@ class EyeTribe():
 
 
 if __name__ == "__main__":
-    # Example usage -- this code is only executed if file is run directly
-    # not when imported as a module, but it shows how to use this module:
+    """
+    Example usage -- this code is only executed if file is run directly
+    not when imported as a module, but it shows how to use this module:
 
-    # from peyetribe import eyetribe
-    # import time
+    from peyetribe import eyetribe
+    import time
+    """
 
     tracker = EyeTribe()
     tracker.connect()
