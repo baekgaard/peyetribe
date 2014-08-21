@@ -18,7 +18,7 @@ A simple usage scenario is as follows:
     count = 0
     while count < 100:
         n = tracker.next()
-        print(str(n))
+        print(n)
         count += 1
 
     tracker.pullmode()

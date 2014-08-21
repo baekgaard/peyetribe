@@ -40,9 +40,9 @@ if sys.version_info[0] == 2:
 else:
     import queue as q
 
-import threading
 import time
 from datetime import datetime
+import threading
 import socket
 import json
 
@@ -282,7 +282,7 @@ class EyeTribe():
             st += 'E' if (self._state & 0x02) else '.'
             st += 'G' if (self._state & 0x01) else '.'
             f = 'F' if self._fix else 'N'
-            s = "%014.3f%s%07.3f%s%s%s" % (self._etime, self._ssep, self._time, self._ssep, self._timestamp, self._ssep,)
+            s = "%014.3f%s%07.3f%s%07.3f%s" % (self._etime, self._ssep, self._time, self._ssep, self._timestamp, self._ssep,)
             s += "%s%s%s%s%s%s%s" % (f, self._ssep, st, self._ssep, str(self._raw), self._ssep, str(self._avg))
             s += "%s%s" % (self._ssep, str(self._lefteye))
             s += "%s%s" % (self._ssep, str(self._righteye))
@@ -545,7 +545,7 @@ if __name__ == "__main__":
     count = 0
     while count < 100:
         n = tracker.next()
-        print(str(n))
+        print(n)
         count += 1
 
     tracker.pullmode()
