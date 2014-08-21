@@ -100,7 +100,7 @@ class EyeTribe():
             def y(self, val):
                 self._y = val
 
-            def __repr__(self):
+            def __str__(self):
                 return (self._fmt + "%s" + self._fmt) % (self._x, self._ssep, self._y)
 
         class Eye:
@@ -150,7 +150,7 @@ class EyeTribe():
             def pcenter(self, val):
                 self._pcenter = val
 
-            def __repr__(self):
+            def __str__(self):
                 return "%s%s%s%s%.1f%s%s" % \
                        (str(self._raw), self._ssep, str(self._avg), self._ssep, self._psize, self._ssep, str(self._pcenter))
 
@@ -273,7 +273,7 @@ class EyeTribe():
             else:
                 return self._righteye
 
-        def __repr__(self):
+        def __str__(self):
             # header = "eT;dT;aT;Fix;State;Rwx;Rwy;Avx;Avy;LRwx;LRwy;LAvx;LAvy;RSz;LCx;LCy;RRwx;RRwy;RAvx;RAvy;RS;RCx;RCy"
 
             st = 'L' if (self._state & 0x10) else '.'
