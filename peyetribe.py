@@ -29,7 +29,7 @@ __author__ = "Per Baekgaard"
 __copyright__ = \
     "Copyright (c) 2014, Per Baekgaard, Technical University of Denmark, DTU Informatics, Cognitive Systems Section"
 __license__ = "MIT"
-__version__ = "0.2"
+__version__ = "0.3"
 __email__ = "pgba@dtu.dk"
 __status__ = "Alpha"
 
@@ -58,11 +58,54 @@ class EyeTribe():
     """
 
     etm_get_init = '{ "category": "tracker", "request" : "get", "values": [ "iscalibrated", "heartbeatinterval" ] }'
+
+    etm_calib = '{ "category": "calibration", "request" : "start", "values": { "pointcount": %d } }'
+    etm_calib_abort = '{ "category": "calibration", "request" : "abort" }'
+    etm_calib_clear = '{ "category": "calibration", "request" : "clear" }'
+    etm_cpstart = '{ "category": "calibration", "request" : "pointstart", "values": { "x": %d,  "y": %d } }'
+    etm_cpend = '{ "category": "calibration", "request" : "pointend" }'
+
+    etm_get_screenres = '{ "category": "tracker", "request" : "get", "values": [ "screenresw", "screenresh" ] }'
+
     etm_set_push = '{ "category": "tracker", "request" : "set", "values": { "push": true } }'
     etm_set_pull = '{ "category": "tracker", "request" : "set", "values": { "push": false } }'
+
     etm_get_frame = '{ "category": "tracker", "request" : "get", "values": [ "frame" ] }'
+
     etm_heartbeat = '{ "category": "heartbeat" }'
+
     etm_buffer_size = 4096
+
+    class Coord():
+
+        """Single (x,y) positions relative to screen or bounding box. Used in Frame and Calibration."""
+
+        def __init__(self, x=0, y=0, ssep=';', fmt="%d"):
+            self._x = x
+            self._y = y
+            self._ssep = ssep
+            self._fmt = fmt
+
+        @property
+        def x(self):
+            """The horizontal cartesian offset (abcissa)."""
+            return self._x
+
+        @x.setter
+        def x(self, val):
+            self._x = val
+
+        @property
+        def y(self):
+            """The vertical cartesian offset (ordinate)."""
+            return self._y
+
+        @y.setter
+        def y(self, val):
+            self._y = val
+
+        def __str__(self):
+            return (self._fmt + "%s" + self._fmt) % (self._x, self._ssep, self._y)
 
     class Frame():
 
@@ -71,37 +114,6 @@ class EyeTribe():
 
         Access members via accessor functions or convert to string via str(...)
         """
-
-        class Coord():
-
-            """Single (x,y) positions relative to screen or bounding box."""
-
-            def __init__(self, x=0, y=0, ssep=';', fmt="%d"):
-                self._x = x
-                self._y = y
-                self._ssep = ssep
-                self._fmt = fmt
-
-            @property
-            def x(self):
-                """The horizontal cartesian offset (abcissa)."""
-                return self._x
-
-            @x.setter
-            def x(self, val):
-                self._x = val
-
-            @property
-            def y(self):
-                """The vertical cartesian offset (ordinate)."""
-                return self._y
-
-            @y.setter
-            def y(self, val):
-                self._y = val
-
-            def __str__(self):
-                return (self._fmt + "%s" + self._fmt) % (self._x, self._ssep, self._y)
 
         class Eye:
 
@@ -168,21 +180,21 @@ class EyeTribe():
             self._timestamp = int(ts.strftime("%s")) + int(ts.strftime("%f"))/1000000.0 
             self._fix = json['fix']
             self._state = json['state']
-            self._raw = EyeTribe.Frame.Coord(json['raw']['x'], json['raw']['y'])
-            self._avg = EyeTribe.Frame.Coord(json['avg']['x'], json['avg']['y'])
+            self._raw = EyeTribe.Coord(json['raw']['x'], json['raw']['y'])
+            self._avg = EyeTribe.Coord(json['avg']['x'], json['avg']['y'])
             eye = json['lefteye']
             self._lefteye = EyeTribe.Frame.Eye(
-                EyeTribe.Frame.Coord(eye['raw']['x'], eye['raw']['y']),
-                EyeTribe.Frame.Coord(eye['avg']['x'], eye['avg']['y']),
+                EyeTribe.Coord(eye['raw']['x'], eye['raw']['y']),
+                EyeTribe.Coord(eye['avg']['x'], eye['avg']['y']),
                 eye['psize'],
-                EyeTribe.Frame.Coord(eye['pcenter']['x'], eye['pcenter']['y'], fmt="%.3f")
+                EyeTribe.Coord(eye['pcenter']['x'], eye['pcenter']['y'], fmt="%.3f")
             )
             eye = json['righteye']
             self._righteye = EyeTribe.Frame.Eye(
-                EyeTribe.Frame.Coord(eye['raw']['x'], eye['raw']['y']),
-                EyeTribe.Frame.Coord(eye['avg']['x'], eye['avg']['y']),
+                EyeTribe.Coord(eye['raw']['x'], eye['raw']['y']),
+                EyeTribe.Coord(eye['avg']['x'], eye['avg']['y']),
                 eye['psize'],
-                EyeTribe.Frame.Coord(eye['pcenter']['x'], eye['pcenter']['y'], fmt="%.3f")
+                EyeTribe.Coord(eye['pcenter']['x'], eye['pcenter']['y'], fmt="%.3f")
             )
             self._ssep = ssep
 
@@ -289,7 +301,31 @@ class EyeTribe():
 
             return s
 
-    def __init__(self, host='localhost', port=6555, ssep=';'):
+    class Calibration():
+        def __init__(self):
+            self.result = False
+            self.deg = None
+            self.degl = None
+            self.degr = None
+            self.pointcount = 0
+            self.points = None
+
+    class CalibrationPoint():
+        def __init__(self):
+            self.state = -1
+            self.cp = EyeTribe.Coord()
+            self.mecp = EyeTribe.Coord()
+            self.ad = None
+            self.adl = None
+            self.adr = None
+            self.mep = None
+            self.mepl = None
+            self.mepr = None
+            self.asd = None
+            self.asdl = None
+            self.asdr = None
+
+    def __init__(self, host='localhost', port=6555, ssep=';', screenindex=0):
         """
         Create an EyeTribe connection object that can be used to connect to an eye tracker.
 
@@ -309,6 +345,37 @@ class EyeTribe():
         self._pmcallback = None
         self._toffset = None
         self._ssep = ssep
+        self._screenindex = screenindex
+        self._calibres = EyeTribe.Calibration()
+
+    def _tell_tracker(self, message):
+        """
+        Send the (canned) message to the tracker and return the reply properly parsed.
+
+        Raises an exception if we get an error message back from the tracker or if in pushmode
+        """
+        if self._ispushmode:
+            raise Exception("Whoa, cannot send/recieve this message while in push mode: %s", message)
+
+        self._sock.send(message.encode())
+        r = self._sock.recv(EyeTribe.etm_buffer_size)
+        print("-> %s" % message)
+        print("<- %s" % r)
+        # Note: We MAY get multiple replies here from a calibration...
+        reply = None
+        for js in r.decode().split("\n"):   # This will also return some empty lines sometimes...
+            if js.strip() != "":
+                p = json.loads(js)
+                sc = p['statuscode']
+                if p['category'] == 'calibration' and sc == 800:
+                    pass
+                elif sc != 200:
+                    raise Exception("Tracker protocol error (%d) on message '%s'" % (sc, message))
+
+                if reply is None:
+                    reply = p
+
+        return reply
 
     def connect(self):
         """
@@ -324,17 +391,10 @@ class EyeTribe():
         if self._sock is None:
             self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self._sock.connect((self._host, self._port))
-
-            self._sock.send(EyeTribe.etm_get_init.encode())
             self._sock.settimeout(30)
-            r = self._sock.recv(EyeTribe.etm_buffer_size).decode()
 
             try:
-                p = json.loads(r)
-
-                sc = p['statuscode']
-                if sc != 200:
-                    raise Exception("connection failed, protocol error (%d)", sc)
+                p = self._tell_tracker(EyeTribe.etm_get_init)
 
                 self._hbinterval = int(p['values']['heartbeatinterval']) / 1000.0
                 if self._hbinterval != 0:
@@ -443,18 +503,14 @@ class EyeTribe():
 
         # sys.stderr.write("switching to push mode...\n")
 
-        self._ispushmode = True
         if callback!=None:
             self._pmcallback = callback
 
         # set eye tracker to push mode and read it's reply (only one, we hope)
         # TODO: The eye tracker behaviour is not clear here; race conditions could appear
-        self._sock.send(EyeTribe.etm_set_push.encode())
-        r = self._sock.recv(EyeTribe.etm_buffer_size)
-        p = json.loads(r.decode())
-        sc = p['statuscode']
-        if sc != 200:
-            raise Exception("The connection failed with tracker protocol error (%d)", sc)
+        self._tell_tracker(EyeTribe.etm_set_push)
+
+        self._ispushmode = True
 
         # setup heart-beat generator
         if self._hbinterval != 0:
@@ -514,29 +570,85 @@ class EyeTribe():
             except q.Empty:
                 return None
         else:
-            self._sock.send(EyeTribe.etm_get_frame.encode())
-            r = self._sock.recv(EyeTribe.etm_buffer_size).decode()
+            p = self._tell_tracker(EyeTribe.etm_get_frame)
 
-            p = json.loads(r)
-
-            sc = p['statuscode']
-            if sc != 200:
-                raise Exception("connection failed, protocol error (%d)", sc)
             return EyeTribe.Frame(p['values']['frame'])
 
+    def get_screen_res(self):
+        p = self._tell_tracker(EyeTribe.etm_get_screenres)
 
+        maxx = p['values']['screenresw']
+        maxy = p['values']['screenresh']
+
+        return (maxx, maxy)
+
+    def calibration_start(self, pointcount=9):
+        """
+        (Re)run the calibration procedure with pointcount points.
+
+        Call calibration_point_start and calibration_point_end for each point when it displays on the screen.
+
+        The result can be retrieved by latest_calibration_result after the calibration has completed.
+        """
+
+        self._tell_tracker(EyeTribe.etm_calib % pointcount)
+
+
+    def calibration_point_start(self, x, y):
+            self._tell_tracker(EyeTribe.etm_cpstart % (x, y))
+
+    def calibration_point_end(self):
+            p = self._tell_tracker(EyeTribe.etm_cpend)
+
+            if 'values' in p:
+                self._calibres.result = p['values']['calibresult']['result']
+                self._calibres.deg = p['values']['calibresult']['deg']
+                self._calibres.degl = p['values']['calibresult']['degl']
+                self._calibres.degr = p['values']['calibresult']['degr']
+
+                cps = p['values']['calibresult']['calibpoints']
+                self._calibres.points = [ EyeTribe.CalibrationPoint() for i in range(len(cps)) ]
+                for i in range(len(cps)):
+                    self._calibres.points[i].state = cps[i]['state']
+                    self._calibres.points[i].cp = EyeTribe.Coord(cps[i]['cp']['x'], cps[i]['cp']['y'])
+                    self._calibres.points[i].mecp = EyeTribe.Coord(cps[i]['cp']['x'], cps[i]['cp']['y'])
+                    self._calibres.points[i].ad = cps[i]['acd']['ad']
+                    self._calibres.points[i].adl = cps[i]['acd']['adl']
+                    self._calibres.points[i].adr = cps[i]['acd']['adr']
+                    self._calibres.points[i].mep = cps[i]['mepix']['mep']
+                    self._calibres.points[i].mepl = cps[i]['mepix']['mepl']
+                    self._calibres.points[i].mepr = cps[i]['mepix']['mepr']
+                    self._calibres.points[i].asd = cps[i]['asdp']['asd']
+                    self._calibres.points[i].asdl = cps[i]['asdp']['asdl']
+                    self._calibres.points[i].asdr = cps[i]['asdp']['asdr']
+
+                if self._calibres.result:
+                    print("NOTICE: Tracker calibrated succesfully, average error is %0.1f deg (L: %0.1f, R: %0.1f)" % 
+                            (self._calibres.deg, self._calibres.degl, self._calibres.degr))
+                else:
+                    print("WARNING: Tracker failed to calibrate")
+
+    def calibration_abort(self):
+            self._tell_tracker(EyeTribe.etm_calib_abort)
+
+    def calibration_clear(self):
+            self._tell_tracker(EyeTribe.etm_calib_clear)
+
+    def latest_calibration_result(self):
+        return self._calibres
 
 if __name__ == "__main__":
     """
     Example usage -- this code is only executed if file is run directly
     not when imported as a module, but it shows how to use this module:
 
-    from peyetribe import eyetribe
+    from peyetribe import EyeTribe
     import time
     """
 
     tracker = EyeTribe()
     tracker.connect()
+
     n = tracker.next()
 
     print("eT;dT;aT;Fix;State;Rwx;Rwy;Avx;Avy;LRwx;LRwy;LAvx;LAvy;LPSz;LCx;LCy;RRwx;RRwy;RAvx;RAvy;RPSz;RCx;RCy")
