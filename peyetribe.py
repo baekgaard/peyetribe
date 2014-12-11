@@ -29,7 +29,7 @@ __author__ = "Per Baekgaard"
 __copyright__ = \
     "Copyright (c) 2014, Per Baekgaard, Technical University of Denmark, DTU Informatics, Cognitive Systems Section"
 __license__ = "MIT"
-__version__ = "0.3"
+__version__ = "0.4"
 __email__ = "pgba@dtu.dk"
 __status__ = "Alpha"
 
@@ -53,7 +53,7 @@ class EyeTribe():
     Main class to handle the Eye Tracker interface and values.
 
     Includes subclasses Frame (that holds an entire tracker frame with 
-    both-eye positions) and its Eye and Coord subclasses holding (single eye) 
+    both-eye positions) and Frame.Eye and Coord subclasses holding (single eye) 
     data and all (x,y) coordinates of eye and bounding boxes
     """
 
@@ -336,14 +336,14 @@ class EyeTribe():
         self._host = host
         self._port = port
         self._sock = None
-        self._queue = None
         self._ispushmode = False
         self._hbinterval = 0 # Note: this is (converted to a value in) seconds
         self._hbeater = None
         self._listener = None
-        self._queue = q.Queue()
+        self._frameq = q.Queue()
+        self._replyq = q.Queue()
+        self._reply_lock = threading.Semaphore() # Keeps track of whether someone needs a reply
         self._pmcallback = None
-        self._toffset = None
         self._ssep = ssep
         self._screenindex = screenindex
         self._calibres = EyeTribe.Calibration()
@@ -352,28 +352,26 @@ class EyeTribe():
         """
         Send the (canned) message to the tracker and return the reply properly parsed.
 
-        Raises an exception if we get an error message back from the tracker or if in pushmode
+        Raises an exception if we get an error message back from the tracker (anything status!=200)
         """
-        if self._ispushmode:
-            raise Exception("Whoa, cannot send/recieve this message while in push mode: %s", message)
+        if not self._listener:
+            raise Exception("Internal error; listener is not running so we cannot get replies from the tracker!")
+        if not self._replyq.empty():
+            raise Exception("Tracker protocol error; we have a queue reply before asking for something: %s" % (self._replyq.get()))
+
+        # lock semaphore to ensure we're the only ones opening a request that expects a reply from the tracker
+        self._reply_lock.acquire()
 
         self._sock.send(message.encode())
-        r = self._sock.recv(EyeTribe.etm_buffer_size)
-        print("-> %s" % message)
-        print("<- %s" % r)
-        # Note: We MAY get multiple replies here from a calibration...
-        reply = None
-        for js in r.decode().split("\n"):   # This will also return some empty lines sometimes...
-            if js.strip() != "":
-                p = json.loads(js)
-                sc = p['statuscode']
-                if p['category'] == 'calibration' and sc == 800:
-                    pass
-                elif sc != 200:
-                    raise Exception("Tracker protocol error (%d) on message '%s'" % (sc, message))
 
-                if reply is None:
-                    reply = p
+        reply = self._replyq.get(True)
+
+        # release the lock again now that we have the expected reply
+        self._reply_lock.release()
+
+        sc = reply['statuscode']
+        if sc != 200:
+            raise Exception("Tracker protocol error (%d) on message '%s'" % (sc, message))
 
         return reply
 
@@ -381,12 +379,69 @@ class EyeTribe():
         """
         Connect an eyetribe object to the actual Eye Tracker by establishing a TCP/IP connection.
 
-        Also gets heartbeatinterval information, which is needed later for the call-back timing
-        and to set up sensible timeout values on the socket (if non-zero, otherwise 30s is used)
-
-        As this is a new connection, there can be nothing "pending" in the socket stream
-        and we thus don't have to care about reading more than one reply
+        Also gets heartbeatinterval information, and sets up the heartbeater and listener threads
         """
+
+        def _hbeater_thread():
+            """sends heartbeats at the required interval until the connection is closed, but does not read any replies"""
+            sys.stderr.write("_hbeater starting\n")
+            while self._sock:
+                self._sock.send(EyeTribe.etm_heartbeat.encode())
+                time.sleep(self._hbinterval)
+            sys.stderr.write("_hbeater ending\n")
+            return
+
+        def _listener_thread():
+            """
+            Listens for replies from the tracker (including heartbeat replies) and dispatches or deletes those as needed
+            
+            This is the only place where we listen for replies from the tracker
+
+            Currently assumes there are continous heartbeats, otherwise we will time out at some point...
+            """
+            sys.stderr.write("_listener starting\n")
+            while self._sock:
+                # Keep going until we're asked to terminate (or we timeout with an error)
+                try:
+                    r = self._sock.recv(EyeTribe.etm_buffer_size)
+
+                    # Multiple replies handled assuming non-documented \n is sent from the tracker, but (TODO) not split frames,
+                    for js in r.decode().split("\n"):
+                        if js.strip() != "":
+                            f = json.loads(js)
+
+                            # handle heartbeat and calibration OK results, and store other stuff to proper queues
+                            sc = f['statuscode']
+                            if f['category'] == "heartbeat":
+                                pass
+                            elif f['category'] == 'calibration' and sc == 800:
+                                pass
+                            elif self._ispushmode and 'values' in f and 'frame' in f['values']:
+                                if sc != 200:
+                                    raise Exception("Connection failed, protocol error (%d)", sc)
+
+                                f = EyeTribe.Frame(f['values']['frame'])
+
+                                if self._pmcallback != None:
+                                    dont_queue = self._pmcallback(f)
+                                else:
+                                    dont_queue = False
+
+                                if not dont_queue:
+                                    self._frameq.put(f)
+                            else:
+                                # use semaphore to verify someone is waiting for a reply and give it to them (or fail!)
+                                if self._reply_lock.acquire(False):
+                                    self._reply_lock.release()
+                                    raise Exception("Connection protocol error; got reply but no-one asked for it: %s" % js)
+                                else:
+                                    self._replyq.put(f)
+
+                except socket.timeout:
+                    if self._sock:
+                        raise Exception("The connection failed with a timeout; lost tracker connection?")
+
+            sys.stderr.write("_listener ending\n")
 
         if self._sock is None:
             self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -394,11 +449,24 @@ class EyeTribe():
             self._sock.settimeout(30)
 
             try:
-                p = self._tell_tracker(EyeTribe.etm_get_init)
+                # setup listener to picks up replies etc; is needed very early on for comms to work
+                self._listener = threading.Thread(target=_listener_thread)
+                self._listener.daemon = True
+                self._listener.start()
 
+                p = self._tell_tracker(EyeTribe.etm_get_init)
                 self._hbinterval = int(p['values']['heartbeatinterval']) / 1000.0
                 if self._hbinterval != 0:
                     self._sock.settimeout(self._hbinterval*2)
+
+                # setup heart-beat generator
+                if self._hbinterval != 0:
+                    self._hbeater = threading.Thread(target=_hbeater_thread)
+                    self._hbeater.daemon = True
+                    self._hbeater.start()
+                else:
+                    self._hbeater = None
+
             except ValueError:
                 raise
 
@@ -413,11 +481,31 @@ class EyeTribe():
         else:
             raise Exception("cannot (re)bind a connected socket; close it first")
 
-    def close(self):
-        """Close TCP/IP connection, returning the object back to its starting condition."""
+    def close(self, quick=False):
+        """
+        Close TCP/IP connection, returning the object back to its starting condition.
+
+        If quick is True, do NOT wait for the listener and heartbeat threads to stop.
+        """
         if not self._sock.close is None:
             self._sock.close()
             self._sock = None
+
+            if not quick:
+                # sync for listener to stop
+                self._listener.join(min((self._hbinterval*3, 30)))
+                if self._listener.is_alive():
+                    raise Exception("Listener thread did not terminate as expected; protocol error?")
+
+                # and for the heartbeater to stop as well
+                if self._hbinterval != 0:
+                    self._hbeater.join(min((self._hbinterval*3, 10)))
+                    if self._hbeater.is_alive():
+                        raise Exception("HeartBeater thread did not terminate as expected; protocol error?")
+
+            self._listener = None
+            self._hbeater = None
+
         else:
             raise Exception("cannot close an already closed connection")
 
@@ -432,100 +520,19 @@ class EyeTribe():
         The callback can return True to indicate that no further processing should be done
         on the frame; otherwise the frame will be queued as normal for later retrieval by next().
 
-        Note that the callback is called on the listener thread!
-
-        This function also contains the threaded functions handling callback and listener operations
-
+        Note that the callback is called on the sockets listener thread!
         """
-
-        def hbeater():
-            """sends heartbeats at the required interval, but does not read the reply."""
-
-            while self._ispushmode:
-                self._sock.send(EyeTribe.etm_heartbeat.encode())
-                # sys.stderr.write("sending heartbeat\n")
-                time.sleep(self._hbinterval)
-            # sys.stderr.write("normal termination of heartbeater\n")
-            return
-
-        def listener():
-            """process pushed data (and heartbeat replies and other stuff returned) from the tracker in push mode."""
-
-            while self._ispushmode:
-                # Keep going until we're asked to terminate (or we timeout with an error)
-                try:
-                    r = self._sock.recv(EyeTribe.etm_buffer_size)
-
-                    # Handle multiple 'frames' (but TODO: not currently split frames), somehow assuming the 
-                    # non-documented newline being sent from the tracker as it currently does
-                    for js in r.decode().split("\n"):   # This will also return some empty lines sometimes...
-                        if js.strip() != "":
-                            f = json.loads(js)
-                            # check for any errors, and bail out if we get one!
-                            sc = f['statuscode']
-                            if sc != 200:
-                                self._ispushmode = False
-                                raise Exception("connection failed, protocol error (%d)", sc)
-
-                            # process replies with frames and store those to queue, discarding all other data for now
-                            # although we could also save other replies as needed about state etc
-                            if f['category'] != "heartbeat" and 'values' in f and 'frame' in f['values']:
-                                f = EyeTribe.Frame(f['values']['frame'])
-
-                                if self._toffset is None:
-                                    self._toffset = f.time
-                                # f.time -= self._toffset
-
-                                if self._pmcallback != None:
-                                    dont_queue = self._pmcallback(f)
-                                else:
-                                    dont_queue = False
-
-                                if not dont_queue:
-                                    self._queue.put(f)
-                            # else:
-                                # sys.stderr.write("Got reply on %s from tracker\n" % f['category'])
-                                # sys.stderr.write("%s\n" % js)
-
-                except socket.timeout:
-
-                    # The final "OK" message didn't get to us, but we're still OK; otherwise complain
-                    # sys.stderr.write("timeout on listener thread\n")
-                    if self._ispushmode:
-                        self._ispushmode = False
-                        raise Exception("The pushmode connection failed with a timeout; lost tracker connection?")
-
-            # sys.stderr.write("(normal?) termination of listener\n")
 
         # if already in pushmode, do nothing...
         if self._ispushmode:
             return
 
-        # sys.stderr.write("switching to push mode...\n")
-
         if callback!=None:
             self._pmcallback = callback
 
-        # set eye tracker to push mode and read it's reply (only one, we hope)
-        # TODO: The eye tracker behaviour is not clear here; race conditions could appear
         self._tell_tracker(EyeTribe.etm_set_push)
 
         self._ispushmode = True
-
-        # setup heart-beat generator
-        if self._hbinterval != 0:
-            self._hbeater = threading.Thread(target=hbeater, kwargs={})
-            self._hbeater.daemon = True
-            self._hbeater.start()
-        else:
-            self._hbeater = None
-
-        # ... and listener that picks up frames (and handles the push mode)
-        self._listener = threading.Thread(target=listener, kwargs={})
-        self._listener.daemon = True
-        self._listener.start()
-
-        return
 
     def pullmode(self):
         """
@@ -535,26 +542,9 @@ class EyeTribe():
         """
 
         if self._ispushmode:
-            # End the pull mode - the listener thread will read the reply
-            # sys.stderr.write("trying to stop the listener and heartbeater...\n")
-            self._ispushmode = False     # will cause the listener/hbeater to stop the eye tracker pushing
-            self._sock.send(EyeTribe.etm_set_pull.encode())
+            self._tell_tracker(EyeTribe.etm_set_pull)
+            self._ispushmode = False
 
-            # sync for it to stop
-            self._listener.join(min((self._hbinterval*2, 10)))
-            # sys.stderr.write("listener stopped...\n")
-            if self._listener.isAlive():
-                raise Exception("Listener thread did not terminate as expected; protocol error?")
-            self._listener = None
-
-            if self._hbinterval != 0:
-                self._hbeater.join(min((self._hbinterval*2, 10)))
-                # sys.stderr.write("listener stopped...\n")
-                if self._hbeater.isAlive():
-                    raise Exception("HeartBeater thread did not terminate as expected; protocol error?")
-                self._hbeater = None
-
-        self._toffset = None
         self._pmcallback = None
 
     def next(self, block=True):
@@ -566,13 +556,13 @@ class EyeTribe():
         """
         if self._ispushmode:
             try:
-                return self._queue.get(block)
+                return self._frameq.get(block)
             except q.Empty:
                 return None
         else:
             p = self._tell_tracker(EyeTribe.etm_get_frame)
 
-            return EyeTribe.Frame(p['values']['frame'])
+        return EyeTribe.Frame(p['values']['frame'])
 
     def get_screen_res(self):
         p = self._tell_tracker(EyeTribe.etm_get_screenres)
@@ -622,11 +612,13 @@ class EyeTribe():
                     self._calibres.points[i].asdl = cps[i]['asdp']['asdl']
                     self._calibres.points[i].asdr = cps[i]['asdp']['asdr']
 
+                '''
                 if self._calibres.result:
                     print("NOTICE: Tracker calibrated succesfully, average error is %0.1f deg (L: %0.1f, R: %0.1f)" % 
                             (self._calibres.deg, self._calibres.degl, self._calibres.degr))
                 else:
                     print("WARNING: Tracker failed to calibrate")
+                '''
 
     def calibration_abort(self):
             self._tell_tracker(EyeTribe.etm_calib_abort)
