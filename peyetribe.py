@@ -177,7 +177,7 @@ class EyeTribe():
             self._etime = time.time()
             self._time = json['time'] / 1000.0
             ts = datetime.strptime(json['timestamp'], "%Y-%m-%d %H:%M:%S.%f")
-            self._timestamp = int(ts.strftime("%s")) + int(ts.strftime("%f"))/1000000.0 
+            self._timestamp = int(time.mktime(ts.timetuple())) + int(ts.strftime("%f"))/1000000.0 
             self._fix = json['fix']
             self._state = json['state']
             self._raw = EyeTribe.Coord(json['raw']['x'], json['raw']['y'])
@@ -437,9 +437,9 @@ class EyeTribe():
                                 else:
                                     self._replyq.put(f)
 
-                except socket.timeout:
+                except (socket.timeout, OSError):
                     if self._sock:
-                        raise Exception("The connection failed with a timeout; lost tracker connection?")
+                        raise Exception("The connection failed with a timeout or OSError; lost tracker connection?")
 
             sys.stderr.write("_listener ending\n")
 
@@ -488,8 +488,9 @@ class EyeTribe():
         If quick is True, do NOT wait for the listener and heartbeat threads to stop.
         """
         if not self._sock.close is None:
-            self._sock.close()
+            _s = self._sock
             self._sock = None
+            _s.close()
 
             if not quick:
                 # sync for listener to stop
