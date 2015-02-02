@@ -174,6 +174,7 @@ class EyeTribe():
             a string, as in a print statement. This is useful for dumping csv files.
             """
 
+            self._json = json
             self._etime = time.time()
             self._time = json['time'] / 1000.0
             ts = datetime.strptime(json['timestamp'], "%Y-%m-%d %H:%M:%S.%f")
@@ -197,6 +198,11 @@ class EyeTribe():
                 EyeTribe.Coord(eye['pcenter']['x'], eye['pcenter']['y'], fmt="%.3f")
             )
             self._ssep = ssep
+
+        @property
+        def json(self):
+            """The 'original' json dict from the eye tracker -- for the curious or for debugging"""
+            return self._json
 
         @property
         def etime(self):
@@ -420,15 +426,15 @@ class EyeTribe():
                                 if sc != 200:
                                     raise Exception("Connection failed, protocol error (%d)", sc)
 
-                                f = EyeTribe.Frame(f['values']['frame'])
+                                ef = EyeTribe.Frame(f['values']['frame'])
 
                                 if self._pmcallback != None:
-                                    dont_queue = self._pmcallback(f)
+                                    dont_queue = self._pmcallback(ef)
                                 else:
                                     dont_queue = False
 
                                 if not dont_queue:
-                                    self._frameq.put(f)
+                                    self._frameq.put(ef)
                             else:
                                 # use semaphore to verify someone is waiting for a reply and give it to them (or fail!)
                                 if self._reply_lock.acquire(False):
