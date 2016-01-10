@@ -12,7 +12,7 @@ A simple usage scenario is as follows:
     tracker.connect()
     n = tracker.next()
 
-    print("eT;dT;aT;Fix;State;Rwx;Rwy;Avx;Avy;LRwx;LRwy;LAvx;LAvy;RSz;LCx;LCy;RRwx;RRwy;RAvx;RAvy;RS;RCx;RCy\n")
+    print("eT;dT;aT;Fix;State;Rwx;Rwy;Avx;Avy;LRwx;LRwy;LAvx;LAvy;LPSz;LCx;LCy;RRwx;RRwy;RAvx;RAvy;RPSz;RCx;RCy")
 
     tracker.pushmode()
     count = 0
@@ -42,6 +42,40 @@ This could alternatively be used for filtering which frames are to be queued for
 When creating the tracker object, you can specify an alternative host or port as follows:
 
     tracker = EyeTribe(host="your.host.name", port=1234)
+
+
+The parameters returned are as follows:
+
+    eT    -- Epoch time (seconds.fraction since Jan 1st 1970); peyetribe.py stamp when the eye frame is received
+    dT    -- Eye tribe server timestamp: seconds since boot or some such (often not too useful)
+    aT    -- Epoch time; eye tribe server estimate of the eye frame; most accurate timestamp to use
+    Fix   -- Fixation flag from the eye tribe server (either F or N); to some extent reflects fixations
+    State -- % character flag like ".....", ".F..." or "..PEG" (which is most normal state) etc:
+
+                L - L if tracking is completely lost; . otherwise
+                F - F if tracker failed to track anything in the frame; . otherwise
+                P - P if a face or a single eye is detected; . otherwise
+                E - E if both eyes are detected (pupil and glints); . otherwise
+                G - G if on-screen gaze coordinates are produced; . otherwise
+    Rwx   -- Raw combined-eye X gaze coordinate (pixel coordinates)
+    Rwy   -- Raw combined-eye Y gaze coordinate (pixel coordinates)
+    Avx   -- Averaged combined-eye X gaze coordinate (pixel coordinates)
+    Avy   -- Averaged combined-eye Y gaze coordinate (pixel coordinates)
+    LRwx  -- Raw Left-Eye  X gaze coordinate (pixel coordinates)
+    LRwy  -- Raw RIght-Eye Y gaze coordinate (pixel coordinates)
+    LAvx  -- Averaged Left-Eye  X gaze coordinate (pixel coordinates)
+    LAvy  -- Averaged Left-Eye  Y gaze coordinate (pixel coordinates)
+    LPSz  -- Left pupil size estimate (linear measure)
+    LCx   -- Left pupil center X coordinate seen from the tracker (0 to 1)
+    LCy   -- Left pupil center Y coordinate seen from the tracker (0 to 1)
+    RRwx  -- Raw Left-Eye X gaze coordinate (pixel coordinates)
+    RRwy  -- Raw RIght-Eye Y gaze coordinate (pixel coordinates)
+    RAvx  -- Averaged Left-Eye  X gaze coordinate (pixel coordinates)
+    RAvy  -- Averaged Left-Eye  Y gaze coordinate (pixel coordinates)
+    RPSz  -- Right pupil size estimate (linear measure)
+    RCx   -- Right pupil center X coordinate seen from the tracker (0 to 1)
+    RCy   -- Right pupil center Y coordinate seen from the tracker (0 to 1)
+
 
 This module works with both Python 2 and Python 3.
 
