@@ -74,7 +74,7 @@ def calibrate_tracker(win, tracker):
             return keys[0]
  
     if 'escape' == display_text("Will now calibrate the eye tracker.\n" + \
-                            "Please follow the presented circles\nEnsure you fixate while they are red.\n\n" + \
+                            "Please follow the presented circles.\nEnsure you fixate while they are red.\n\n" + \
                             "Press SPACE when ready for calibration"):
         return False
 
